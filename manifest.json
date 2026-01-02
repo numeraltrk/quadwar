@@ -1,0 +1,32 @@
+{
+  "name": "Quadratic War",
+  "short_name": "QuadWar",
+  "id": "quadwar-v1",
+  "start_url": "/quadwar/",
+  "scope": "/quadwar/",
+  "display": "standalone",
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "description": "Quadratic War - An abstract strategy game where algebra meets warfare.",
+  "categories": [
+    "games",
+    "strategy",
+    "education"
+  ],
+  "background_color": "#050510",
+  "theme_color": "#00ccff",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "assets/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

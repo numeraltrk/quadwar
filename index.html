@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quadratic War - Strategy Evolved</title>
+    <link rel="icon" type="image/png" href="assets/icons/favicon.png">
+    <link rel="apple-touch-icon" href="assets/icons/icon-192x192.png">
+    <link rel="stylesheet" href="assets/css/landing.css">
+    <link rel="manifest" href="manifest.json">
+</head>
+
+<body>
+    <div class="background-grid"></div>
+
+    <div class="container">
+        <header class="hero">
+            <h1 class="title">QUADRATIC WAR</h1>
+            <p class="subtitle">An abstract strategy game where algebra meets warfare. Form equations, eliminate
+                enemies, and master the grid.</p>
+        </header>
+
+        <div class="cta-container">
+            <button id="playBtn" class="play-btn btn-primary">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                PLAY GAME
+            </button>
+            <button id="rulesBtn" class="play-btn btn-secondary">HOW TO PLAY</button>
+            <button id="installBtn" class="play-btn btn-success" style="display: none;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                INSTALL APP
+            </button>
+        </div>
+    </div>
+
+    <footer>
+        &copy; 2024 Quadratic War. All Rights Reserved.
+    </footer>
+
+    <!-- Mode Selection Modal -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="game-modes">
+            <h2 class="modal-title">Select Mode</h2>
+
+            <button class="mode-btn" data-mode="local">
+                <span>VS Player (Local)</span>
+                <span class="arrow">→</span>
+            </button>
+
+            <button class="mode-btn" data-mode="cpu">
+                <span>VS Computer</span>
+                <span class="arrow">→</span>
+            </button>
+
+            <button class="mode-btn" data-mode="online">
+                <span>Online PvP</span>
+                <span class="arrow">→</span>
+            </button>
+
+            <div style="text-align: center; margin-top: 2rem;">
+                <span style="font-size: 0.8rem; color: #666; cursor: pointer;"
+                    onclick="document.getElementById('modalOverlay').classList.remove('active')">Close</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rules Modal -->
+    <div class="modal-overlay" id="rulesModal">
+        <div class="game-modes rules-content">
+            <h2 class="modal-title">How to Play</h2>
+
+            <div class="rules-section">
+                <h3>Objective</h3>
+                <p>Form equations <strong>ax² + bx + c = 0</strong> using adjacent pieces to eliminate your opponent.
+                </p>
+            </div>
+
+            <div class="rules-section">
+                <h3>Movement</h3>
+                <ul>
+                    <li><strong>Quadratic (x²)</strong>: Moves 3 spaces (Diagonal/Straight).</li>
+                    <li><strong>Linear (x)</strong>: Moves 2 spaces (Straight only).</li>
+                    <li><strong>Constant (1)</strong>: Moves 1 space forward.</li>
+                </ul>
+            </div>
+
+            <div class="rules-section">
+                <h3>Resolution</h3>
+                <p>The discriminant <strong>Δ = b² - 4ac</strong> decides the outcome::</p>
+                <ul>
+                    <li><span class="highlight-good">Δ ≥ 0</span> (Real Roots): Destroy opponent's pieces.</li>
+                    <li><span class="highlight-bad">Δ < 0</span> (Complex Roots): Your pieces backfire and are
+                                destroyed!</li>
+                </ul>
+            </div>
+
+            <div style="text-align: center; margin-top: 2rem;">
+                <button class="play-btn small-btn" id="closeRulesBtn" style="width: auto; padding: 0.8rem 2rem;">GOT
+                    IT</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="assets/js/landing.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/quadwar/sw.js', { scope: '/quadwar/' })
+                .then(reg => console.log('SW Registered!', reg))
+                .catch(err => console.log('SW Error', err));
+        }
+    </script>
+</body>
+
+</html>

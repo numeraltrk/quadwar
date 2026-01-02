@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quadratic War - Play</title>
+    <meta name="theme-color" content="#00ccff">
+    <link rel="icon" type="image/png" href="assets/icons/favicon.png">
+    <link rel="apple-touch-icon" href="assets/icons/icon-192x192.png">
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="assets/css/landing.css"> <!-- Inherit base styles -->
+    <link rel="stylesheet" href="assets/css/game.css">
+    <!-- PeerJS for Multiplayer -->
+    <script src="https://unpkg.com/peerjs@1.5.0/dist/peerjs.min.js"></script>
+</head>
+
+<body>
+
+    <div id="game-container">
+        <!-- Board Wrapper -->
+        <div id="board-wrapper">
+            <!-- Top Bar -->
+            <div class="board-top-bar">
+                <a href="#" class="icon-btn" onclick="confirmExit()" title="Back">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                </a>
+                <div id="headerTitle" class="header-title">Quadratic War</div>
+                <button class="icon-btn" onclick="requestRestart()" title="Restart">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38" />
+                    </svg>
+                </button>
+            </div>
+
+            <canvas id="gameCanvas"></canvas>
+
+            <!-- Bottom Bar (Turn) -->
+            <div id="turnBar" class="board-bottom-bar turn-red">Initializing...</div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div style="margin-bottom: 0.5rem; font-weight: bold; color: var(--accent-blue);">Equation Log</div>
+            <div id="logPanel" class="log-panel">
+                <!-- Log entries go here -->
+                <div style="color: #666; font-style: italic;">Matches will appear here...</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="assets/js/game/main.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/quadwar/sw.js', { scope: '/quadwar/' })
+                .then(reg => console.log('SW Registered!', reg))
+                .catch(err => console.log('SW Error', err));
+        }
+    </script>
+</body>
+
+</html>
