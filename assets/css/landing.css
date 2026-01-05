@@ -358,3 +358,26 @@ footer {
         padding: 2rem;
     }
 }
+
+/* Hero Icon */
+.hero-icon {
+    width: clamp(150px, 22vw, 220px);
+    height: clamp(150px, 22vw, 220px);
+    margin-bottom: 2rem;
+    filter: drop-shadow(0 0 25px rgba(0, 255, 136, 0.4));
+    animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+    0% {
+        transform: translateY(0px);
+    }
+
+    50% {
+        transform: translateY(-10px);
+    }
+
+    100% {
+        transform: translateY(0px);
+    }
+}
