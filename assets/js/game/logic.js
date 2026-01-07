@@ -307,24 +307,190 @@ export class GameLogic {
         }
     }
 
-    // --- AI ---
-    // Simple greedy AI
+    // --- AI (Minimax) ---
+
     aiMove() {
-        const myMoves = this.getAllMoves(this.currentPlayer);
-        if (myMoves.length === 0) return null; // Stuck?
+        const depth = 3; // Lookahead depth
+        // Blue is usually the CPU in this context, but let's make it generic
+        // If current player is Maximizing player.
+        // We assume aiMove is called when it's the AI's turn.
+        // So the AI (currentPlayer) wants to MAXIMIZE the score.
 
-        let bestScore = -Infinity;
-        let bestMove = myMoves[Math.floor(Math.random() * myMoves.length)]; // Default random
+        console.log(`AI Thinking (Depth ${depth})...`);
+        const result = this.minimax(depth, -Infinity, Infinity, true, this.currentPlayer);
 
-        for (let move of myMoves) {
-            // Simulate
-            const score = this.evaluateMove(move);
-            if (score > bestScore) {
-                bestScore = score;
-                bestMove = move;
+        console.log("AI Best Move:", result);
+        return result.move;
+    }
+
+    minimax(depth, alpha, beta, isMaximizing, player) {
+        if (depth === 0 || this.checkWinConditionForMinimax()) {
+            return { score: this.evaluateBoard(player) };
+        }
+
+        const moves = this.getAllMoves(this.currentPlayer);
+
+        // Safety check: if no moves, game over or stuck
+        if (moves.length === 0) {
+            return { score: this.evaluateBoard(player) };
+        }
+
+        let bestMove = null;
+
+        if (isMaximizing) {
+            let maxEval = -Infinity;
+            for (let move of moves) {
+                const undoInfo = this.simulateMove(move);
+
+                // Switch turn logic for recursion
+                this.switchTurnInternal();
+
+                const evalObj = this.minimax(depth - 1, alpha, beta, false, player);
+                const evaluation = evalObj.score;
+
+                this.undoMove(undoInfo);
+                this.switchTurnInternal(); // Switch back
+
+                if (evaluation > maxEval) {
+                    maxEval = evaluation;
+                    bestMove = move;
+                }
+                alpha = Math.max(alpha, evaluation);
+                if (beta <= alpha) break; // Prune
+            }
+            return { score: maxEval, move: bestMove };
+        } else {
+            let minEval = Infinity;
+            for (let move of moves) {
+                const undoInfo = this.simulateMove(move);
+
+                this.switchTurnInternal();
+
+                const evalObj = this.minimax(depth - 1, alpha, beta, true, player);
+                const evaluation = evalObj.score;
+
+                this.undoMove(undoInfo);
+                this.switchTurnInternal();
+
+                if (evaluation < minEval) {
+                    minEval = evaluation;
+                    bestMove = move;
+                }
+                beta = Math.min(beta, evaluation);
+                if (beta <= alpha) break; // Prune
+            }
+            return { score: minEval, move: bestMove };
+        }
+    }
+
+    // Helper to switch turn without side effects (like win checks that set gameOver)
+    switchTurnInternal() {
+        this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+    }
+
+    checkWinConditionForMinimax() {
+        // Lightweight check just for minimax recursion
+        let redCount = 0, blueCount = 0;
+        for (let r = 0; r < CONSTANTS.ROWS; r++) {
+            for (let c = 0; c < CONSTANTS.COLS; c++) {
+                const p = this.board[r][c];
+                if (p) {
+                    if (p.player === CONSTANTS.PLAYER_RED) redCount++;
+                    else blueCount++;
+                }
             }
         }
-        return bestMove;
+        return redCount === 0 || blueCount === 0;
+    }
+
+    simulateMove(move) {
+        // RETURN undo info: { move, captured: [], originalFrom, originalTo }
+        const r1 = move.from.r, c1 = move.from.c;
+        const r2 = move.to.r, c2 = move.to.c;
+        const piece = this.board[r1][c1];
+
+        // 1. Execute Geometry Move
+        this.board[r2][c2] = piece;
+        this.board[r1][c1] = null;
+
+        // 2. Check Equations
+        // resolveEquations is PURE, returns { removed: [...] }
+        const results = this.resolveEquations(r2, c2);
+
+        let allRemoved = [];
+        if (results.length > 0) {
+            results.forEach(res => {
+                res.removed.forEach(item => {
+                    // Store the piece so we can put it back
+                    // Check if it was already removed by previous equation in chain?
+                    // The 'removed' list contains {r,c, piece}
+                    // We need to double check if piece is still there (could be duplicate if multiple eq intersect?)
+                    if (this.board[item.r][item.c]) {
+                        allRemoved.push({ r: item.r, c: item.c, piece: this.board[item.r][item.c] });
+                        this.board[item.r][item.c] = null;
+                    }
+                });
+            });
+        }
+
+        return {
+            move: move,
+            piece: piece,
+            captured: allRemoved
+        };
+    }
+
+    undoMove(info) {
+        // 1. Restore Captured
+        info.captured.forEach(item => {
+            this.board[item.r][item.c] = item.piece;
+        });
+
+        // 2. Reverse Geometry Move
+        const r1 = info.move.from.r, c1 = info.move.from.c;
+        const r2 = info.move.to.r, c2 = info.move.to.c;
+
+        this.board[r1][c1] = info.piece;
+        this.board[r2][c2] = null;
+    }
+
+    evaluateBoard(aiPlayer) {
+        // AI wants to MAXIMIZE this score.
+        // Positive = Good for AI. Negative = Good for Opponent.
+
+        let score = 0;
+        const opponent = (aiPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+
+        for (let r = 0; r < CONSTANTS.ROWS; r++) {
+            for (let c = 0; c < CONSTANTS.COLS; c++) {
+                const p = this.board[r][c];
+                if (!p) continue;
+
+                let value = 0;
+                // Material Value
+                if (p.type === CONSTANTS.TYPE_QUADRATIC) value = 50;
+                else if (p.type === CONSTANTS.TYPE_LINEAR) value = 30;
+                else value = 10;
+
+                // Position Value (Advance is good)
+                // For Red (Top), increasing Row is good.
+                // For Blue (Bottom), decreasing Row is good.
+                let advancement = 0;
+                if (p.player === CONSTANTS.PLAYER_RED) {
+                    advancement = r;
+                } else {
+                    advancement = (CONSTANTS.ROWS - 1) - r;
+                }
+                value += advancement * 2; // Small bias to move forward
+
+                if (p.player === aiPlayer) {
+                    score += value;
+                } else {
+                    score -= value;
+                }
+            }
+        }
+        return score;
     }
 
     getAllMoves(player) {
@@ -343,54 +509,6 @@ export class GameLogic {
         return moves;
     }
 
-    evaluateMove(move) {
-        // Clone board to simulate
-        // This is expensive for full depth, so for now just 1-ply lookahead (Greedy)
-
-        // We can't easily clone entire class, so we just temporarily modify state
-        const originalFrom = this.board[move.from.r][move.from.c];
-
-        // Execute Move
-        this.board[move.to.r][move.to.c] = originalFrom;
-        this.board[move.from.r][move.from.c] = null;
-
-        // Check Equations - Use resolveEquations (it's pure now, doesn't remove pieces itself)
-        const results = this.resolveEquations(move.to.r, move.to.c);
-
-        let score = 0;
-
-        // Forward bias (encourage attacking)
-        if (this.currentPlayer === CONSTANTS.PLAYER_RED) {
-            score += (move.to.r - move.from.r); // Moving down is good
-        } else {
-            score += (move.from.r - move.to.r); // Moving up is good
-        }
-
-
-        // Equation potential
-        if (results.length > 0) {
-            results.forEach(eqResult => {
-                // Check if it's Good or Bad
-                const victim = eqResult.realRoots
-                    ? (this.currentPlayer === CONSTANTS.PLAYER_RED ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED)
-                    : this.currentPlayer;
-
-                const removedCount = eqResult.removed.length;
-
-                if (victim !== this.currentPlayer) {
-                    score += 100 * removedCount; // GOOD!
-                } else {
-                    score -= 200 * removedCount; // BAD! Suicide!
-                }
-            });
-        }
-
-        // Rollback
-        this.board[move.from.r][move.from.c] = originalFrom;
-        this.board[move.to.r][move.to.c] = null; // Should be null usually
-
-        return score;
-    }
     // --- Helpers ---
     getLabel(value, type) {
         if (type === CONSTANTS.TYPE_CONSTANT) return `${value}`;
