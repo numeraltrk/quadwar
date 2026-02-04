@@ -165,32 +165,39 @@ const GamePage = () => {
     }, [navigate]);
 
     useEffect(() => {
+        // AI Turn Triggering with Breeding Time (1s)
         if (gameMode === 'cpu' && gameRef.current.currentPlayer === CONSTANTS.PLAYER_RED && !gameRef.current.gameOver && !isAnimating) {
-            console.log("[Main] AI Turn Triggered");
-            setIsThinking(true);
-            const g = gameRef.current;
-            workerRef.current.postMessage({
-                type: 'MOVE',
-                data: {
-                    values: g.values,
-                    metadata: g.metadata,
-                    currentPlayer: g.currentPlayer,
-                    redCount: g.redCount,
-                    blueCount: g.blueCount,
-                    zobristHash: g.zobristHash
-                }
-            });
+            console.log("[Main] AI Turn Waiting (Breathing Gap)...");
 
-            const safety = setTimeout(() => setIsThinking(current => {
-                if (current) {
-                    console.warn("[Main] AI Safety Timeout Triggered");
+            const timer = setTimeout(() => {
+                console.log("[Main] AI Start Thinking...");
+                setIsThinking(true);
+                const g = gameRef.current;
+                workerRef.current.postMessage({
+                    type: 'MOVE',
+                    data: {
+                        values: g.values,
+                        metadata: g.metadata,
+                        currentPlayer: g.currentPlayer,
+                        redCount: g.redCount,
+                        blueCount: g.blueCount,
+                        zobristHash: g.zobristHash
+                    }
+                });
+
+                // Safety timeout for worker
+                const safety = setTimeout(() => setIsThinking(current => {
+                    if (current) {
+                        console.warn("[Main] AI Safety Timeout Triggered");
+                        return false;
+                    }
                     return false;
-                }
-                return false;
-            }), 15000);
-            return () => clearTimeout(safety);
+                }), 15000);
+            }, 1000); // 1s Breathing gap
+
+            return () => clearTimeout(timer);
         }
-    }, [gameMode, isAnimating, updateKey]); // updateKey ensures it triggers after moves
+    }, [gameMode, isAnimating, updateKey]);
 
     useEffect(() => {
         // Init AI Worker

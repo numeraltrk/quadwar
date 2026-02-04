@@ -122,20 +122,22 @@ const LandingPage = () => {
             <div className={`modal-overlay ${showModeModal ? 'active' : ''}`} onClick={(e) => e.target.classList.contains('modal-overlay') && setShowModeModal(false)}>
                 <div className="game-modes">
                     <h2 className="modal-title">Select Mode</h2>
-                    <button className="mode-btn" onClick={() => handleModeSelect('local')}>
-                        <span>VS Player (Local)</span>
-                        <span className="arrow">→</span>
-                    </button>
-                    <button className="mode-btn" onClick={() => handleModeSelect('cpu')}>
-                        <span>VS Computer</span>
-                        <span className="arrow">→</span>
-                    </button>
-                    <button className="mode-btn" onClick={() => handleModeSelect('online')}>
-                        <span>Online PvP</span>
-                        <span className="arrow">→</span>
-                    </button>
-                    <div style={{ textAlign: 'center', marginTop: '2rem' }}>
-                        <span style={{ fontSize: '0.8rem', color: '#666', cursor: 'pointer' }} onClick={() => setShowModeModal(false)}>Close</span>
+                    <div className="mode-btn-container">
+                        <button className="mode-btn" onClick={() => handleModeSelect('local')}>
+                            <span>VS Player (Local)</span>
+                            <span className="arrow">→</span>
+                        </button>
+                        <button className="mode-btn" onClick={() => handleModeSelect('cpu')}>
+                            <span>VS Computer</span>
+                            <span className="arrow">→</span>
+                        </button>
+                        <button className="mode-btn" onClick={() => handleModeSelect('online')}>
+                            <span>Online PvP</span>
+                            <span className="arrow">→</span>
+                        </button>
+                    </div>
+                    <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
+                        <span style={{ fontSize: '0.9rem', color: '#666', cursor: 'pointer', padding: '10px' }} onClick={() => setShowModeModal(false)}>Close</span>
                     </div>
                 </div>
             </div>

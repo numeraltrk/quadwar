@@ -10,15 +10,25 @@ const GameCanvas = memo(({ game, isOnline, myPlayer, onMove, pendingEquations, i
         if (!offscreenRef.current) {
             offscreenRef.current = document.createElement('canvas');
         }
+        const dpr = window.devicePixelRatio || 1;
         const offscreen = offscreenRef.current;
-        offscreen.width = CONSTANTS.COLS * CONSTANTS.TILE_SIZE;
-        offscreen.height = CONSTANTS.ROWS * CONSTANTS.TILE_SIZE;
+        offscreen.width = CONSTANTS.COLS * CONSTANTS.TILE_SIZE * dpr;
+        offscreen.height = CONSTANTS.ROWS * CONSTANTS.TILE_SIZE * dpr;
         const octx = offscreen.getContext('2d');
+        octx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         // Draw Checkerboard
         for (let r = 0; r < CONSTANTS.ROWS; r++) {
             for (let c = 0; c < CONSTANTS.COLS; c++) {
-                const isDark = (r + c) % 2 === 1;
+                // Ensure parity is consistent even with rotation for non-square boards
+                // We use the logical coordinates r, c to determine the absolute "Dark/Light" 
+                // but when drawing background, we draw relative to the current view.
+                let logicR = r, logicC = c;
+                if (rotateBoard) {
+                    logicR = CONSTANTS.ROWS - 1 - r;
+                    logicC = CONSTANTS.COLS - 1 - c;
+                }
+                const isDark = (logicR + logicC) % 2 === 1;
                 octx.fillStyle = isDark ? CONSTANTS.COLOR_BOARD_DARK : CONSTANTS.COLOR_BOARD_LIGHT;
                 octx.fillRect(c * CONSTANTS.TILE_SIZE, r * CONSTANTS.TILE_SIZE, CONSTANTS.TILE_SIZE, CONSTANTS.TILE_SIZE);
             }
@@ -27,29 +37,43 @@ const GameCanvas = memo(({ game, isOnline, myPlayer, onMove, pendingEquations, i
         // Draw Grid lines
         octx.lineWidth = 1;
         octx.strokeStyle = CONSTANTS.COLOR_GRID;
+        const totalWidth = CONSTANTS.COLS * CONSTANTS.TILE_SIZE;
+        const totalHeight = CONSTANTS.ROWS * CONSTANTS.TILE_SIZE;
+
         for (let r = 0; r <= CONSTANTS.ROWS; r++) {
             octx.beginPath();
             octx.moveTo(0, r * CONSTANTS.TILE_SIZE);
-            octx.lineTo(offscreen.width, r * CONSTANTS.TILE_SIZE);
+            octx.lineTo(totalWidth, r * CONSTANTS.TILE_SIZE);
             octx.stroke();
         }
         for (let c = 0; c <= CONSTANTS.COLS; c++) {
             octx.beginPath();
             octx.moveTo(c * CONSTANTS.TILE_SIZE, 0);
-            octx.lineTo(c * CONSTANTS.TILE_SIZE, offscreen.height);
+            octx.lineTo(c * CONSTANTS.TILE_SIZE, totalHeight);
             octx.stroke();
         }
-    }, []);
+    }, [rotateBoard]); // Re-render background if board rotates
 
     useEffect(() => {
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+
+        // Match CSS size to canvas size
+        canvas.width = CONSTANTS.COLS * CONSTANTS.TILE_SIZE * dpr;
+        canvas.height = CONSTANTS.ROWS * CONSTANTS.TILE_SIZE * dpr;
+        canvas.style.width = `${CONSTANTS.COLS * CONSTANTS.TILE_SIZE}px`;
+        canvas.style.height = `${CONSTANTS.ROWS * CONSTANTS.TILE_SIZE}px`;
+
+        ctx.scale(dpr, dpr);
+
         let animationFrameId;
 
         const render = () => {
             // 1. Draw Pre-rendered Background
             if (offscreenRef.current) {
-                ctx.drawImage(offscreenRef.current, 0, 0);
+                // Draw at logical size (since ctx is already scaled by dpr)
+                ctx.drawImage(offscreenRef.current, 0, 0, CONSTANTS.COLS * CONSTANTS.TILE_SIZE, CONSTANTS.ROWS * CONSTANTS.TILE_SIZE);
             }
 
             // 2. Highlight Selected & Valid Moves
@@ -172,14 +196,14 @@ const GameCanvas = memo(({ game, isOnline, myPlayer, onMove, pendingEquations, i
 
         const canvas = canvasRef.current;
         const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
 
-        const x = (e.clientX - rect.left) * scaleX;
-        const y = (e.clientY - rect.top) * scaleY;
+        // Use logical coordinates (CSS pixels) for grid calculation
+        const x = (e.clientX - rect.left);
+        const y = (e.clientY - rect.top);
 
-        let col = Math.floor(x / CONSTANTS.TILE_SIZE);
-        let row = Math.floor(y / CONSTANTS.TILE_SIZE);
+        // Calculate based on the actual displayed size vs logical grid
+        let col = Math.floor(x / (rect.width / CONSTANTS.COLS));
+        let row = Math.floor(y / (rect.height / CONSTANTS.ROWS));
 
         if (rotateBoard) {
             col = CONSTANTS.COLS - 1 - col;
@@ -192,8 +216,6 @@ const GameCanvas = memo(({ game, isOnline, myPlayer, onMove, pendingEquations, i
     return (
         <canvas
             ref={canvasRef}
-            width={CONSTANTS.COLS * CONSTANTS.TILE_SIZE}
-            height={CONSTANTS.ROWS * CONSTANTS.TILE_SIZE}
             onClick={handleInput}
             id="gameCanvas"
         />
