@@ -3,6 +3,43 @@ import { CONSTANTS } from '../logic/constants';
 
 const GameCanvas = ({ game, isOnline, myPlayer, onMove, pendingEquations, isAnimating, rotateBoard }) => {
     const canvasRef = useRef(null);
+    const offscreenRef = useRef(null);
+
+    // Pre-render the static background (board + grid)
+    useEffect(() => {
+        if (!offscreenRef.current) {
+            offscreenRef.current = document.createElement('canvas');
+        }
+        const offscreen = offscreenRef.current;
+        offscreen.width = CONSTANTS.COLS * CONSTANTS.TILE_SIZE;
+        offscreen.height = CONSTANTS.ROWS * CONSTANTS.TILE_SIZE;
+        const octx = offscreen.getContext('2d');
+
+        // Draw Checkerboard
+        for (let r = 0; r < CONSTANTS.ROWS; r++) {
+            for (let c = 0; c < CONSTANTS.COLS; c++) {
+                const isDark = (r + c) % 2 === 1;
+                octx.fillStyle = isDark ? CONSTANTS.COLOR_BOARD_DARK : CONSTANTS.COLOR_BOARD_LIGHT;
+                octx.fillRect(c * CONSTANTS.TILE_SIZE, r * CONSTANTS.TILE_SIZE, CONSTANTS.TILE_SIZE, CONSTANTS.TILE_SIZE);
+            }
+        }
+
+        // Draw Grid lines
+        octx.lineWidth = 1;
+        octx.strokeStyle = CONSTANTS.COLOR_GRID;
+        for (let r = 0; r <= CONSTANTS.ROWS; r++) {
+            octx.beginPath();
+            octx.moveTo(0, r * CONSTANTS.TILE_SIZE);
+            octx.lineTo(offscreen.width, r * CONSTANTS.TILE_SIZE);
+            octx.stroke();
+        }
+        for (let c = 0; c <= CONSTANTS.COLS; c++) {
+            octx.beginPath();
+            octx.moveTo(c * CONSTANTS.TILE_SIZE, 0);
+            octx.lineTo(c * CONSTANTS.TILE_SIZE, offscreen.height);
+            octx.stroke();
+        }
+    }, []);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -10,43 +47,15 @@ const GameCanvas = ({ game, isOnline, myPlayer, onMove, pendingEquations, isAnim
         let animationFrameId;
 
         const render = () => {
-            // Clear & Draw Checkerboard
-            for (let r = 0; r < CONSTANTS.ROWS; r++) {
-                for (let c = 0; c < CONSTANTS.COLS; c++) {
-                    let drawR = r;
-                    let drawC = c;
-                    if (rotateBoard) {
-                        drawR = CONSTANTS.ROWS - 1 - r;
-                        drawC = CONSTANTS.COLS - 1 - c;
-                    }
-
-                    const isDark = (r + c) % 2 === 1;
-                    ctx.fillStyle = isDark ? CONSTANTS.COLOR_BOARD_DARK : CONSTANTS.COLOR_BOARD_LIGHT;
-                    ctx.fillRect(drawC * CONSTANTS.TILE_SIZE, drawR * CONSTANTS.TILE_SIZE, CONSTANTS.TILE_SIZE, CONSTANTS.TILE_SIZE);
-                }
+            // 1. Draw Pre-rendered Background
+            if (offscreenRef.current) {
+                ctx.drawImage(offscreenRef.current, 0, 0);
             }
 
-            // Draw Grid
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = CONSTANTS.COLOR_GRID;
-            for (let r = 0; r <= CONSTANTS.ROWS; r++) {
-                ctx.beginPath();
-                ctx.moveTo(0, r * CONSTANTS.TILE_SIZE);
-                ctx.lineTo(canvas.width, r * CONSTANTS.TILE_SIZE);
-                ctx.stroke();
-            }
-            for (let c = 0; c <= CONSTANTS.COLS; c++) {
-                ctx.beginPath();
-                ctx.moveTo(c * CONSTANTS.TILE_SIZE, 0);
-                ctx.lineTo(c * CONSTANTS.TILE_SIZE, canvas.height);
-                ctx.stroke();
-            }
-
-            // Highlight Selected & Valid Moves
+            // 2. Highlight Selected & Valid Moves
             if (game.selectedPiece) {
                 const { r, c } = game.selectedPiece;
-                let drawR = r;
-                let drawC = c;
+                let drawR = r, drawC = c;
                 if (rotateBoard) {
                     drawR = CONSTANTS.ROWS - 1 - r;
                     drawC = CONSTANTS.COLS - 1 - c;
@@ -58,8 +67,7 @@ const GameCanvas = ({ game, isOnline, myPlayer, onMove, pendingEquations, isAnim
                 const moves = game.getValidMoves(r, c);
                 ctx.fillStyle = CONSTANTS.COLOR_VALID_MOVE;
                 for (let m of moves) {
-                    let mDrawR = m.r;
-                    let mDrawC = m.c;
+                    let mDrawR = m.r, mDrawC = m.c;
                     if (rotateBoard) {
                         mDrawR = CONSTANTS.ROWS - 1 - m.r;
                         mDrawC = CONSTANTS.COLS - 1 - m.c;
@@ -68,7 +76,7 @@ const GameCanvas = ({ game, isOnline, myPlayer, onMove, pendingEquations, isAnim
                 }
             }
 
-            // Draw Pending Equation Highlights
+            // 3. Draw Pending Equation Highlights
             if (pendingEquations) {
                 pendingEquations.forEach(eq => {
                     ctx.strokeStyle = '#ffd700';
@@ -85,7 +93,7 @@ const GameCanvas = ({ game, isOnline, myPlayer, onMove, pendingEquations, isAnim
                         ctx.strokeRect(c * CONSTANTS.TILE_SIZE, r * CONSTANTS.TILE_SIZE, CONSTANTS.TILE_SIZE, CONSTANTS.TILE_SIZE);
                     });
 
-                    ctx.shadowBlur = 0;
+                    ctx.shadowBlur = 0; // Reset shadow immediately after chain
 
                     eq.removed.forEach(item => {
                         let r = item.r, c = item.c;
@@ -112,7 +120,7 @@ const GameCanvas = ({ game, isOnline, myPlayer, onMove, pendingEquations, isAnim
                 });
             }
 
-            // Draw Pieces
+            // 4. Draw Pieces
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.font = 'bold 16px monospace';
@@ -121,8 +129,7 @@ const GameCanvas = ({ game, isOnline, myPlayer, onMove, pendingEquations, isAnim
                 for (let c = 0; c < CONSTANTS.COLS; c++) {
                     const p = game.board[r][c];
                     if (p) {
-                        let drawR = r;
-                        let drawC = c;
+                        let drawR = r, drawC = c;
                         if (rotateBoard) {
                             drawR = CONSTANTS.ROWS - 1 - r;
                             drawC = CONSTANTS.COLS - 1 - c;

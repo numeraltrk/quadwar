@@ -87,7 +87,7 @@ const LandingPage = () => {
             <div className="container">
                 <header className="hero">
                     <p>
-                        <img src="/icons/landing_image.png" alt="Quadratic War Icon" className="hero-icon" />
+                        <img src="icons/landing_image.png" alt="Quadratic War Icon" className="hero-icon" />
                     </p>
                     <h1 className="title">QUADRATIC WAR</h1>
                     <p className="subtitle">An abstract strategy game where algebra meets warfare. Form equations, eliminate enemies, and master the grid.</p>

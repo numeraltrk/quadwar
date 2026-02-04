@@ -7,6 +7,8 @@ export class GameLogic {
         this.selectedPiece = null;
         this.gameOver = false;
         this.winner = null;
+        this.redCount = 0;
+        this.blueCount = 0;
 
         this.initBoard();
     }
@@ -48,6 +50,8 @@ export class GameLogic {
                     value: setup.values[c],
                     label: this.getLabel(setup.values[c], setup.type)
                 };
+                if (player === CONSTANTS.PLAYER_RED) this.redCount++;
+                else this.blueCount++;
             }
         });
     }
@@ -248,60 +252,43 @@ export class GameLogic {
     }
 
     formatEquation(a, b, c) {
-        // ax^2 + bx + c = 0
+        const formatTerm = (val, term) => {
+            if (val === 0) return '';
+            const sign = val > 0 ? ' + ' : ' - ';
+            const absVal = Math.abs(val);
+            let displayVal = absVal === 1 && term !== '' ? '' : absVal;
+            return `${sign}${displayVal}${term}`;
+        };
+
         let str = '';
+        // Quad term (special case for leading sign if negative)
+        if (a === 1) str = 'x²';
+        else if (a === -1) str = '-x²';
+        else str = `${a}x²`;
 
-        // Quad term
-        if (a === 1) str += 'x²';
-        else if (a === -1) str += '-x²';
-        else str += `${a}x²`;
+        str += formatTerm(b, 'x');
+        str += formatTerm(c, '');
 
-        // Linear term
-        if (b > 0) {
-            str += (b === 1) ? ' + x' : ` + ${b}x`;
-        } else if (b < 0) {
-            str += (b === -1) ? ' - x' : ` - ${Math.abs(b)}x`;
-        } else {
-            str += ' + 0x';
-        }
-
-        // Constant term
-        if (c > 0) {
-            str += ` + ${c}`;
-        } else if (c < 0) {
-            str += ` - ${Math.abs(c)}`;
-        } else {
-            str += ' + 0';
-        }
-
-        str += ' = 0';
-        return str;
+        if (str === '') str = '0';
+        return `${str} = 0`.replace(/^ \+ /, ''); // Clean up leading " + "
     }
 
     removePieces(result) {
         for (let item of result.removed) {
-            this.board[item.r][item.c] = null;
+            const p = this.board[item.r][item.c];
+            if (p) {
+                if (p.player === CONSTANTS.PLAYER_RED) this.redCount--;
+                else this.blueCount--;
+                this.board[item.r][item.c] = null;
+            }
         }
     }
 
     checkWinCondition() {
-        let redCount = 0;
-        let blueCount = 0;
-
-        for (let r = 0; r < CONSTANTS.ROWS; r++) {
-            for (let c = 0; c < CONSTANTS.COLS; c++) {
-                const p = this.board[r][c];
-                if (p) {
-                    if (p.player === CONSTANTS.PLAYER_RED) redCount++;
-                    if (p.player === CONSTANTS.PLAYER_BLUE) blueCount++;
-                }
-            }
-        }
-
-        if (redCount === 0) {
+        if (this.redCount === 0) {
             this.gameOver = true;
             this.winner = CONSTANTS.PLAYER_BLUE;
-        } else if (blueCount === 0) {
+        } else if (this.blueCount === 0) {
             this.gameOver = true;
             this.winner = CONSTANTS.PLAYER_RED;
         }
@@ -389,18 +376,7 @@ export class GameLogic {
     }
 
     checkWinConditionForMinimax() {
-        // Lightweight check just for minimax recursion
-        let redCount = 0, blueCount = 0;
-        for (let r = 0; r < CONSTANTS.ROWS; r++) {
-            for (let c = 0; c < CONSTANTS.COLS; c++) {
-                const p = this.board[r][c];
-                if (p) {
-                    if (p.player === CONSTANTS.PLAYER_RED) redCount++;
-                    else blueCount++;
-                }
-            }
-        }
-        return redCount === 0 || blueCount === 0;
+        return this.redCount === 0 || this.blueCount === 0;
     }
 
     simulateMove(move) {
@@ -421,12 +397,11 @@ export class GameLogic {
         if (results.length > 0) {
             results.forEach(res => {
                 res.removed.forEach(item => {
-                    // Store the piece so we can put it back
-                    // Check if it was already removed by previous equation in chain?
-                    // The 'removed' list contains {r,c, piece}
-                    // We need to double check if piece is still there (could be duplicate if multiple eq intersect?)
-                    if (this.board[item.r][item.c]) {
-                        allRemoved.push({ r: item.r, c: item.c, piece: this.board[item.r][item.c] });
+                    const p = this.board[item.r][item.c];
+                    if (p) {
+                        if (p.player === CONSTANTS.PLAYER_RED) this.redCount--;
+                        else this.blueCount--;
+                        allRemoved.push({ r: item.r, c: item.c, piece: p });
                         this.board[item.r][item.c] = null;
                     }
                 });
@@ -443,6 +418,8 @@ export class GameLogic {
     undoMove(info) {
         // 1. Restore Captured
         info.captured.forEach(item => {
+            if (item.piece.player === CONSTANTS.PLAYER_RED) this.redCount++;
+            else this.blueCount++;
             this.board[item.r][item.c] = item.piece;
         });
 
@@ -506,7 +483,28 @@ export class GameLogic {
                 }
             }
         }
-        return moves;
+
+        // Move Ordering: sort by potential captured pieces
+        return moves.sort((a, b) => {
+            const scoreA = this.scoreMove(a);
+            const scoreB = this.scoreMove(b);
+            return scoreB - scoreA;
+        });
+    }
+
+    scoreMove(move) {
+        // Simple heuristic: count pieces that would be removed
+        const r2 = move.to.r, c2 = move.to.c;
+        const results = this.resolveEquations(r2, c2);
+        let score = 0;
+        results.forEach(res => {
+            if (res.realRoots) {
+                score += res.removed.length * 10;
+            } else {
+                score -= res.removed.length * 10; // Avoid backfire
+            }
+        });
+        return score;
     }
 
     // --- Helpers ---
