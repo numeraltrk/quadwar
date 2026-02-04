@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { CONSTANTS } from '../logic/constants';
 
-const LogPanel = ({ logs }) => {
+const LogPanel = memo(({ logs }) => {
     return (
         <div className="sidebar">
             <div style={{ marginBottom: '0.5rem', fontWeight: 'bold', color: 'var(--accent-blue)' }}>Equation Log</div>
@@ -27,6 +27,6 @@ const LogPanel = ({ logs }) => {
             </div>
         </div>
     );
-};
+});
 
 export default LogPanel;

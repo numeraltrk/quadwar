@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { GameLogic } from '../logic/logic';
 import { NetworkManager } from '../logic/network';
@@ -28,32 +28,90 @@ const GamePage = () => {
     const [isAnimating, setIsAnimating] = useState(false);
     const [pendingEquations, setPendingEquations] = useState(null);
     const [headerTitle, setHeaderTitle] = useState('INITIALIZING...');
+    const [isThinking, setIsThinking] = useState(false);
+
+    // AI Worker
+    const workerRef = useRef(null);
 
     const forceUpdate = useCallback(() => {
         setUpdateKey(prev => prev + 1);
     }, []);
 
-    useEffect(() => {
-        if (gameMode === 'online') {
-            setupOnlineMode();
-        } else if (gameMode === 'cpu') {
-            setMyPlayer(CONSTANTS.PLAYER_BLUE); // Human is Blue vs CPU
-            setHeaderTitle('CPU MODE');
-        } else {
-            setHeaderTitle('LOCAL MODE');
-        }
+    const rotateBoard = useMemo(() => isOnline && myPlayer === CONSTANTS.PLAYER_RED, [isOnline, myPlayer]);
 
-        const handleBeforeUnload = (e) => {
-            if (!gameRef.current.gameOver) {
-                e.preventDefault();
-                e.returnValue = '';
-            }
-        };
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    const checkGameOver = useCallback(() => {
+        if (gameRef.current.gameOver) {
+            alert("GAME OVER! Winner: " + (gameRef.current.winner === CONSTANTS.PLAYER_RED ? "Red" : "Blue"));
+        }
     }, []);
 
-    const setupOnlineMode = () => {
+
+    const executeMove = useCallback((fromR, fromC, toR, toC) => {
+        const response = gameRef.current.movePiece(fromR, fromC, toR, toC);
+        const results = response.events;
+
+        if (results && results.length > 0) {
+            results.forEach(res => {
+                setLogs(prev => [{ ...res, player: gameRef.current.currentPlayer }, ...prev]);
+            });
+        }
+
+        if (response.pending) {
+            setIsAnimating(true);
+            setPendingEquations(results);
+
+            setTimeout(() => {
+                gameRef.current.completeTurn(results);
+                setPendingEquations(null);
+                setIsAnimating(false);
+                forceUpdate();
+                checkGameOver();
+            }, 2000);
+        } else {
+            forceUpdate();
+            checkGameOver();
+        }
+    }, [checkGameOver, forceUpdate]);
+
+    const handleMove = useCallback((row, col) => {
+        if (isAnimating || gameRef.current.gameOver) return;
+        if (isOnline && gameRef.current.currentPlayer !== myPlayer) return;
+
+        const g = gameRef.current;
+        if (g.selectedPiece) {
+            const validMoves = g.getValidMoves(g.selectedPiece.r, g.selectedPiece.c);
+            const isMove = validMoves.some(m => m.r === row && m.c === col);
+
+            if (isMove) {
+                const from = { r: g.selectedPiece.r, c: g.selectedPiece.c };
+                const to = { r: row, c: col };
+
+                executeMove(from.r, from.c, to.r, to.c);
+
+                if (isOnline && network) {
+                    network.sendMove({ from, to });
+                }
+            } else {
+                const p = g.getPiece(row, col);
+                if (p && p.player === g.currentPlayer && (!isOnline || p.player === myPlayer)) {
+                    g.selectedPiece = { r: row, c: col };
+                    forceUpdate();
+                } else {
+                    g.selectedPiece = null;
+                    forceUpdate();
+                }
+            }
+        } else {
+            const p = g.getPiece(row, col);
+            if (p && p.player === g.currentPlayer) {
+                if (isOnline && p.player !== myPlayer) return;
+                g.selectedPiece = { r: row, c: col };
+                forceUpdate();
+            }
+        }
+    }, [executeMove, forceUpdate, isOnline, myPlayer, network]);
+
+    const setupOnlineMode = useCallback(() => {
         setIsOnline(true);
         setHeaderTitle('CONNECTING...');
         const net = new NetworkManager();
@@ -89,108 +147,108 @@ const GamePage = () => {
                 window.location.reload();
             }
         };
-    };
+    }, [hostId, joinId, navigate, executeMove]);
 
-    const executeMove = (fromR, fromC, toR, toC) => {
-        const response = gameRef.current.movePiece(fromR, fromC, toR, toC);
-        const results = response.events;
-
-        if (results && results.length > 0) {
-            results.forEach(res => {
-                setLogs(prev => [{ ...res, player: gameRef.current.currentPlayer }, ...prev]);
-            });
-        }
-
-        if (response.pending) {
-            setIsAnimating(true);
-            setPendingEquations(results);
-
-            setTimeout(() => {
-                gameRef.current.completeTurn(results);
-                setPendingEquations(null);
-                setIsAnimating(false);
-                forceUpdate();
-                checkGameOver();
-                checkCpuTurn();
-            }, 2000);
-        } else {
-            forceUpdate();
-            checkGameOver();
-            checkCpuTurn();
-        }
-    };
-
-    const handleMove = (row, col) => {
-        const g = gameRef.current;
-        if (g.selectedPiece) {
-            const validMoves = g.getValidMoves(g.selectedPiece.r, g.selectedPiece.c);
-            const isMove = validMoves.some(m => m.r === row && m.c === col);
-
-            if (isMove) {
-                const from = { r: g.selectedPiece.r, c: g.selectedPiece.c };
-                const to = { r: row, c: col };
-
-                executeMove(from.r, from.c, to.r, to.c);
-
-                if (isOnline && network) {
-                    network.sendMove({ from, to });
-                }
-            } else {
-                const p = g.getPiece(row, col);
-                if (p && p.player === g.currentPlayer && (!isOnline || p.player === myPlayer)) {
-                    g.selectedPiece = { r: row, c: col };
-                    forceUpdate();
-                } else {
-                    g.selectedPiece = null;
-                    forceUpdate();
-                }
-            }
-        } else {
-            const p = g.getPiece(row, col);
-            if (p && p.player === g.currentPlayer) {
-                if (isOnline && p.player !== myPlayer) return;
-                g.selectedPiece = { r: row, c: col };
-                forceUpdate();
-            }
-        }
-    };
-
-    const checkGameOver = () => {
-        if (gameRef.current.gameOver) {
-            alert("GAME OVER! Winner: " + (gameRef.current.winner === CONSTANTS.PLAYER_RED ? "Red" : "Blue"));
-        }
-    };
-
-    const checkCpuTurn = () => {
-        if (gameMode === 'cpu' && gameRef.current.currentPlayer === CONSTANTS.PLAYER_RED && !gameRef.current.gameOver && !isAnimating) {
-            setTimeout(() => {
-                const cpuMove = gameRef.current.aiMove();
-                if (cpuMove) {
-                    executeMove(cpuMove.from.r, cpuMove.from.c, cpuMove.to.r, cpuMove.to.c);
-                } else {
-                    gameRef.current.currentPlayer = CONSTANTS.PLAYER_RED;
-                    forceUpdate();
-                }
-            }, 500);
-        }
-    };
-
-    const handleRestart = () => {
+    const handleRestart = useCallback(() => {
         if (window.confirm("Are you sure you want to restart? Current game progress will be lost.")) {
             if (isOnline && network) {
                 network.sendMessage('RESTART', {});
             }
             window.location.reload();
         }
-    };
+    }, [isOnline, network]);
 
-    const handleExit = () => {
+    const handleExit = useCallback(() => {
         if (window.confirm("Are you sure you want to return to the menu? Current game progress will be lost.")) {
             navigate('/');
         }
-    };
+    }, [navigate]);
 
-    const rotateBoard = isOnline && myPlayer === CONSTANTS.PLAYER_RED;
+    useEffect(() => {
+        if (gameMode === 'cpu' && gameRef.current.currentPlayer === CONSTANTS.PLAYER_RED && !gameRef.current.gameOver && !isAnimating) {
+            console.log("[Main] AI Turn Triggered");
+            setIsThinking(true);
+            const g = gameRef.current;
+            workerRef.current.postMessage({
+                type: 'MOVE',
+                data: {
+                    values: g.values,
+                    metadata: g.metadata,
+                    currentPlayer: g.currentPlayer,
+                    redCount: g.redCount,
+                    blueCount: g.blueCount,
+                    zobristHash: g.zobristHash
+                }
+            });
+
+            const safety = setTimeout(() => setIsThinking(current => {
+                if (current) {
+                    console.warn("[Main] AI Safety Timeout Triggered");
+                    return false;
+                }
+                return false;
+            }), 15000);
+            return () => clearTimeout(safety);
+        }
+    }, [gameMode, isAnimating, updateKey]); // updateKey ensures it triggers after moves
+
+    useEffect(() => {
+        // Init AI Worker
+        try {
+            workerRef.current = new Worker(new URL('../logic/ai.worker.js', import.meta.url), { type: 'module' });
+
+            workerRef.current.onmessage = (e) => {
+                if (e.data.type === 'BEST_MOVE') {
+                    console.log("AI Move Received:", e.data.move);
+                    setIsThinking(false);
+                    if (e.data.move) {
+                        const { from, to } = e.data.move;
+                        executeMove(from.r, from.c, to.r, to.c);
+                    }
+                } else if (e.data.type === 'ERROR') {
+                    console.error("AI Worker Internal Error:", e.data.message, e.data.stack);
+                    setIsThinking(false);
+                    setHeaderTitle("AI ERROR: " + e.data.message);
+                    // Fallback to local AI
+                    const cpuMove = gameRef.current.aiMove();
+                    if (cpuMove) executeMove(cpuMove.from.r, cpuMove.from.c, cpuMove.to.r, cpuMove.to.c);
+                }
+            };
+            // ... (onerror handles same)
+
+            workerRef.current.onerror = (err) => {
+                console.error("AI Worker Error:", err);
+                setIsThinking(false);
+                setHeaderTitle("AI ERROR");
+                // Fallback to local AI if worker fails
+                const cpuMove = gameRef.current.aiMove();
+                if (cpuMove) executeMove(cpuMove.from.r, cpuMove.from.c, cpuMove.to.r, cpuMove.to.c);
+            };
+        } catch (e) {
+            console.error("Failed to start AI Worker:", e);
+        }
+
+        if (gameMode === 'online') {
+            setupOnlineMode();
+        } else if (gameMode === 'cpu') {
+            setMyPlayer(CONSTANTS.PLAYER_BLUE); // Human is Blue vs CPU
+            setHeaderTitle('CPU MODE');
+        } else {
+            setHeaderTitle('LOCAL MODE');
+        }
+
+        const handleBeforeUnload = (e) => {
+            if (!gameRef.current.gameOver) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+            if (workerRef.current) workerRef.current.terminate();
+        };
+    }, [executeMove, gameMode, setupOnlineMode]);
 
     return (
         <div id="game-container">
@@ -221,7 +279,7 @@ const GamePage = () => {
                 />
 
                 <div id="turnBar" className={`board-bottom-bar ${game.currentPlayer === CONSTANTS.PLAYER_RED ? 'turn-red' : 'turn-blue'}`}>
-                    {game.currentPlayer === CONSTANTS.PLAYER_RED ? 'RED' : 'BLUE'}'s Turn
+                    {isThinking ? 'AI IS THINKING...' : `${game.currentPlayer === CONSTANTS.PLAYER_RED ? 'RED' : 'BLUE'}'s Turn`}
                 </div>
             </div>
 

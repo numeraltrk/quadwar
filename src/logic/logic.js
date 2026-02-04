@@ -2,97 +2,141 @@ import { CONSTANTS } from './constants.js';
 
 export class GameLogic {
     constructor() {
-        this.board = []; // 9x8 grid
-        this.currentPlayer = CONSTANTS.PLAYER_BLUE; // Blue starts
+        this.rows = CONSTANTS.ROWS;
+        this.cols = CONSTANTS.COLS;
+        this.size = this.rows * this.cols;
+
+        // TypedArrays for board state
+        this.values = new Int8Array(this.size);      // Piece value (-4 to 4)
+        this.metadata = new Uint8Array(this.size);  // Bits 0-1: Player, 2-4: Type
+
+        this.currentPlayer = CONSTANTS.PLAYER_BLUE;
         this.selectedPiece = null;
         this.gameOver = false;
         this.winner = null;
         this.redCount = 0;
         this.blueCount = 0;
 
+        // Zobrist Hashing & Transposition Table
+        this.zobristTable = new Uint32Array(this.size * 12);
+        this.zobristHash = 0;
+        this.transTable = new Map(); // Simple Map for hashing (state -> {score, depth, move})
+        this.initZobrist();
+
         this.initBoard();
     }
 
-    initBoard() {
-        // Initialize empty board
-        for (let r = 0; r < CONSTANTS.ROWS; r++) {
-            this.board[r] = [];
-            for (let c = 0; c < CONSTANTS.COLS; c++) {
-                this.board[r][c] = null;
-            }
+    initZobrist() {
+        // Use a simple seeded LCG for consistency across threads
+        let seed = 12345;
+        for (let i = 0; i < this.zobristTable.length; i++) {
+            seed = (seed * 1664525 + 1013904223) % 4294967296;
+            this.zobristTable[i] = seed;
         }
+    }
 
-        // Setup Player 1 (Red) - Top
+    getZobristIndex(r, c, type, player) {
+        const typeIdx = (type === CONSTANTS.TYPE_QUADRATIC ? 0 : type === CONSTANTS.TYPE_LINEAR ? 1 : 2);
+        const playerIdx = (player === CONSTANTS.PLAYER_RED ? 0 : 1);
+        return (r * this.cols + c) * 6 + (playerIdx * 3 + typeIdx);
+    }
+
+    initBoard() {
+        this.values.fill(0);
+        this.metadata.fill(0);
+        this.redCount = 0;
+        this.blueCount = 0;
+        this.zobristHash = 0;
+
+        // Setup Player 1 (Red) - Top (0,1,2)
         this.setupPlayer(0, 1, 2, CONSTANTS.PLAYER_RED);
-
-        // Setup Player 2 (Blue) - Bottom
-        // Row indices for P2 are 8, 7, 6 (mirrored)
+        // Setup Player 2 (Blue) - Bottom (8,7,6)
         this.setupPlayer(8, 7, 6, CONSTANTS.PLAYER_BLUE);
     }
 
     setupPlayer(rowQuad, rowLin, rowConst, player) {
         const terms = CONSTANTS.INITIAL_TERMS;
-
-        // Map terms based on player orientation
         const getTerms = (arr) => player === CONSTANTS.PLAYER_RED ? [...arr].reverse() : arr;
 
         const setups = [
-            { row: rowQuad, type: CONSTANTS.TYPE_QUADRATIC, values: getTerms(terms.QUAD) },
-            { row: rowLin, type: CONSTANTS.TYPE_LINEAR, values: getTerms(terms.LIN) },
-            { row: rowConst, type: CONSTANTS.TYPE_CONSTANT, values: getTerms(terms.CONST) }
+            { row: rowQuad, type: CONSTANTS.TYPE_QUADRATIC, flag: CONSTANTS.FLAG_QUAD, values: getTerms(terms.QUAD) },
+            { row: rowLin, type: CONSTANTS.TYPE_LINEAR, flag: CONSTANTS.FLAG_LIN, values: getTerms(terms.LIN) },
+            { row: rowConst, type: CONSTANTS.TYPE_CONSTANT, flag: CONSTANTS.FLAG_CONST, values: getTerms(terms.CONST) }
         ];
 
         setups.forEach(setup => {
-            for (let c = 0; c < 8; c++) {
-                this.board[setup.row][c] = {
-                    player: player,
-                    type: setup.type,
-                    value: setup.values[c],
-                    label: this.getLabel(setup.values[c], setup.type)
-                };
+            for (let c = 0; c < this.cols; c++) {
+                const idx = setup.row * this.cols + c;
+                this.values[idx] = setup.values[c];
+                this.metadata[idx] = (player === CONSTANTS.PLAYER_RED ? CONSTANTS.FLAG_RED : CONSTANTS.FLAG_BLUE) | setup.flag;
+
+                this.zobristHash ^= this.zobristTable[this.getZobristIndex(setup.row, c, setup.type, player)];
+
                 if (player === CONSTANTS.PLAYER_RED) this.redCount++;
                 else this.blueCount++;
             }
         });
     }
 
-    getPiece(r, c) {
-        if (r < 0 || r >= CONSTANTS.ROWS || c < 0 || c >= CONSTANTS.COLS) return null;
-        return this.board[r][c];
+    // Helper for UI/Legacy access
+    get board() {
+        const b = [];
+        for (let r = 0; r < this.rows; r++) {
+            b[r] = [];
+            for (let c = 0; c < this.cols; c++) {
+                b[r][c] = this.getPiece(r, c);
+            }
+        }
+        return b;
     }
 
-    // --- Movement Logic ---
+    getPiece(r, c) {
+        if (r < 0 || r >= this.rows || c < 0 || c >= this.cols) return null;
+        const idx = r * this.cols + c;
+        const meta = this.metadata[idx];
+        if (meta === 0) return null;
+
+        const player = meta & CONSTANTS.MASK_PLAYER;
+        const typeFlag = meta & CONSTANTS.MASK_TYPE;
+        const type = typeFlag === CONSTANTS.FLAG_QUAD ? CONSTANTS.TYPE_QUADRATIC :
+            typeFlag === CONSTANTS.FLAG_LIN ? CONSTANTS.TYPE_LINEAR : CONSTANTS.TYPE_CONSTANT;
+
+        return {
+            player,
+            type,
+            value: this.values[idx],
+            label: this.getLabel(this.values[idx], type)
+        };
+    }
 
     getValidMoves(r, c) {
-        const piece = this.getPiece(r, c);
-        if (!piece || piece.player !== this.currentPlayer) return [];
+        const idx = r * this.cols + c;
+        const meta = this.metadata[idx];
+        if (meta === 0 || (meta & CONSTANTS.MASK_PLAYER) !== this.currentPlayer) return [];
 
+        const typeFlag = meta & CONSTANTS.MASK_TYPE;
+        const player = meta & CONSTANTS.MASK_PLAYER;
         const moves = [];
         const directions = [
-            [-1, 0], [1, 0], [0, -1], [0, 1], // Cardinal
-            [-1, -1], [-1, 1], [1, -1], [1, 1] // Diagonal
+            [-1, 0], [1, 0], [0, -1], [0, 1],
+            [-1, -1], [-1, 1], [1, -1], [1, 1]
         ];
 
-        // Define movement rules based on type
-        if (piece.type === CONSTANTS.TYPE_QUADRATIC) {
-            // Up to 3 steps in any direction (Queen-like but limited range)
+        if (typeFlag === CONSTANTS.FLAG_QUAD) {
             for (let dir of directions) {
                 for (let dist = 1; dist <= 3; dist++) {
-                    if (this.canMoveTo(r, c, dir[0] * dist, dir[1] * dist, moves)) break; // Stop if blocked
+                    if (this.canMoveTo(r, c, dir[0] * dist, dir[1] * dist, moves)) break;
                 }
             }
-        } else if (piece.type === CONSTANTS.TYPE_LINEAR) {
-            // Up to 2 steps, Horizontal/Vertical ONLY
-            for (let i = 0; i < 4; i++) { // First 4 are cardinal
+        } else if (typeFlag === CONSTANTS.FLAG_LIN) {
+            for (let i = 0; i < 4; i++) {
                 let dir = directions[i];
                 for (let dist = 1; dist <= 2; dist++) {
                     if (this.canMoveTo(r, c, dir[0] * dist, dir[1] * dist, moves)) break;
                 }
             }
-        } else if (piece.type === CONSTANTS.TYPE_CONSTANT) {
-            // 1 step forward ONLY
-            // P1 moves "down" (+1 row), P2 moves "up" (-1 row)
-            const forwardDir = (piece.player === CONSTANTS.PLAYER_RED) ? 1 : -1;
+        } else if (typeFlag === CONSTANTS.FLAG_CONST) {
+            const forwardDir = (player === CONSTANTS.PLAYER_RED) ? 1 : -1;
             this.canMoveTo(r, c, forwardDir, 0, moves);
         }
 
@@ -100,39 +144,42 @@ export class GameLogic {
     }
 
     canMoveTo(r, c, dr, dc, movesList) {
-        const nr = r + dr;
-        const nc = c + dc;
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nr >= this.rows || nc < 0 || nc >= this.cols) return true;
 
-        // Bounds check
-        if (nr < 0 || nr >= CONSTANTS.ROWS || nc < 0 || nc >= CONSTANTS.COLS) return true; // "Blocked" by wall
-
-        const target = this.board[nr][nc];
-
-        if (target === null) {
-            // Empty square - valid move
+        if (this.metadata[nr * this.cols + nc] === 0) {
             movesList.push({ r: nr, c: nc });
-            return false; // Continue exploring this direction (not blocked)
-        } else {
-            // Occupied - blocked
-            // Cannot capture by displacement, so ANY piece blocks movement
-            return true; // Stop exploring
+            return false;
         }
+        return true;
     }
 
     movePiece(fromR, fromC, toR, toC) {
-        const piece = this.board[fromR][fromC];
-        this.board[toR][toC] = piece;
-        this.board[fromR][fromC] = null;
+        const fromIdx = fromR * this.cols + fromC;
+        const toIdx = toR * this.cols + toC;
 
-        // Check for Equations
+        const value = this.values[fromIdx];
+        const meta = this.metadata[fromIdx];
+        const player = meta & CONSTANTS.MASK_PLAYER;
+        const typeFlag = meta & CONSTANTS.MASK_TYPE;
+        const type = typeFlag === CONSTANTS.FLAG_QUAD ? CONSTANTS.TYPE_QUADRATIC :
+            typeFlag === CONSTANTS.FLAG_LIN ? CONSTANTS.TYPE_LINEAR : CONSTANTS.TYPE_CONSTANT;
+
+        // Update Zobrist Hash (Remove from old, add to new)
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(fromR, fromC, type, player)];
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(toR, toC, type, player)];
+
+        this.values[toIdx] = value;
+        this.metadata[toIdx] = meta;
+        this.values[fromIdx] = 0;
+        this.metadata[fromIdx] = 0;
+
         const results = this.resolveEquations(toR, toC);
+        this.selectedPiece = null;
 
         if (results.length > 0) {
-            // Equations found! Return them so UI can animate.
-            // Do NOT switch turn yet.
             return { events: results, pending: true };
         } else {
-            // No equations, checks or balances. Proceed.
             this.switchTurn();
             return { events: [], pending: false };
         }
@@ -144,110 +191,73 @@ export class GameLogic {
     }
 
     completeTurn(events) {
-        // Called after animation
         if (events) {
             events.forEach(ev => this.removePieces(ev));
         }
         this.switchTurn();
     }
 
-    // --- Equation Logic ---
-
     resolveEquations(r, c) {
-        // Check all 4 axes passing through (r,c)
         const axes = [
-            [[0, 1], [0, -1]], // Horizontal
-            [[1, 0], [-1, 0]], // Vertical
-            [[1, 1], [-1, -1]], // Diag \
-            [[1, -1], [-1, 1]]  // Diag /
+            [[0, 1], [0, -1]], [[1, 0], [-1, 0]],
+            [[1, 1], [-1, -1]], [[1, -1], [-1, 1]]
         ];
-
         let resolvedEvents = [];
-
         for (let axis of axes) {
             const chain = this.getContiguousChain(r, c, axis);
-            // Equation needs at least 3 terms to form ax^2+bx+c=0 properly? 
-            // Original code says >= 2. Let's stick strictly to >= 2 per previous logic, 
-            // but normally you need 3 terms. But logic allows 2 terms sometimes.
             if (chain.length >= 2) {
                 const eqResult = this.checkPolynomial(chain);
-                if (eqResult) {
-                    resolvedEvents.push(eqResult);
-                }
+                if (eqResult) resolvedEvents.push(eqResult);
             }
         }
         return resolvedEvents;
     }
 
     getContiguousChain(r, c, axisDirs) {
-        let chain = [{ r, c, piece: this.board[r][c] }];
-
-        // Scan both directions of the axis
+        let chain = [{ r, c, piece: this.getPiece(r, c) }];
         for (let dir of axisDirs) {
-            let currR = r + dir[0];
-            let currC = c + dir[1];
-            while (currR >= 0 && currR < CONSTANTS.ROWS && currC >= 0 && currC < CONSTANTS.COLS) {
-                const p = this.board[currR][currC];
+            let currR = r + dir[0], currC = c + dir[1];
+            while (currR >= 0 && currR < this.rows && currC >= 0 && currC < this.cols) {
+                const p = this.getPiece(currR, currC);
                 if (p) {
                     chain.push({ r: currR, c: currC, piece: p });
-                } else {
-                    break; // Gap found
-                }
-                currR += dir[0];
-                currC += dir[1];
+                    currR += dir[0]; currC += dir[1];
+                } else break;
             }
         }
-        // Sort chain to be in spatial order (optional, but good for visualization)
-        // Actually, order doesn't matter for the SUM, but we need to check MIXED PLAYERS
         return chain;
     }
 
     checkPolynomial(chain) {
-        // Rule: Chain must contain pieces from BOTH players
-        const p1Count = chain.filter(i => i.piece.player === CONSTANTS.PLAYER_RED).length;
-        const p2Count = chain.filter(i => i.piece.player === CONSTANTS.PLAYER_BLUE).length;
-
-        if (p1Count === 0 || p2Count === 0) return null; // Logic check: must have both players
-
-        // Sum terms: ax^2 + bx + c
+        let p1Count = 0, p2Count = 0;
         let a = 0, b = 0, c = 0;
 
         for (let item of chain) {
             const p = item.piece;
+            if (!p) continue; // Defensive check
+            if (p.player === CONSTANTS.PLAYER_RED) p1Count++;
+            else p2Count++;
+
             if (p.type === CONSTANTS.TYPE_QUADRATIC) a += p.value;
-            if (p.type === CONSTANTS.TYPE_LINEAR) b += p.value;
-            if (p.type === CONSTANTS.TYPE_CONSTANT) c += p.value;
+            else if (p.type === CONSTANTS.TYPE_LINEAR) b += p.value;
+            else c += p.value;
         }
 
-        // Rule Update: must contain a quadratic term (a != 0)
-        if (a === 0) return null;
-
-        // Must form actual quadratic? "ax^2 + bx + c = 0"
-        // If a=0, it's linear (bx+c=0). Rules imply "Polynomial expressions".
-        // Let's assume standard quadratic analysis D = b^2 - 4ac.
-        // Even if a=0, D = b^2 >= 0 always (Real roots).
+        if (p1Count === 0 || p2Count === 0 || a === 0) return null;
 
         const delta = (b * b) - (4 * a * c);
         const hasRealRoots = delta >= 0;
+        const victimPlayer = hasRealRoots ? (this.currentPlayer === CONSTANTS.PLAYER_RED ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED) : this.currentPlayer;
+        const piecesToRemove = chain.filter(item => item.piece && item.piece.player === victimPlayer);
 
-        // Determine victim
-        // Success (D >= 0) -> Opponent pieces removed
-        // Backfire (D < 0) -> Active logic (Mover) pieces removed
-        // Current player is the one who just moved.
-        const victimPlayer = hasRealRoots
-            ? (this.currentPlayer === CONSTANTS.PLAYER_RED ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED)
-            : this.currentPlayer;
-
-        const piecesToRemove = chain.filter(item => item.piece.player === victimPlayer);
-
-        if (piecesToRemove.length === 0) return null; // No effect
+        if (piecesToRemove.length === 0) return null;
 
         return {
             equation: this.formatEquation(a, b, c),
             delta: delta,
             realRoots: hasRealRoots,
-            removed: piecesToRemove, // List of {r,c}
-            chain: chain // For highlighting
+            removed: piecesToRemove,
+            chain: chain
         };
     }
 
@@ -259,264 +269,220 @@ export class GameLogic {
             let displayVal = absVal === 1 && term !== '' ? '' : absVal;
             return `${sign}${displayVal}${term}`;
         };
-
-        let str = '';
-        // Quad term (special case for leading sign if negative)
-        if (a === 1) str = 'x²';
-        else if (a === -1) str = '-x²';
-        else str = `${a}x²`;
-
+        let str = (a === 1) ? 'x²' : (a === -1) ? '-x²' : `${a}x²`;
         str += formatTerm(b, 'x');
         str += formatTerm(c, '');
-
-        if (str === '') str = '0';
-        return `${str} = 0`.replace(/^ \+ /, ''); // Clean up leading " + "
+        return `${str === '' ? '0' : str} = 0`.replace(/^ \+ /, '');
     }
 
     removePieces(result) {
         for (let item of result.removed) {
-            const p = this.board[item.r][item.c];
-            if (p) {
-                if (p.player === CONSTANTS.PLAYER_RED) this.redCount--;
+            const idx = item.r * this.cols + item.c;
+            const meta = this.metadata[idx];
+            if (meta) {
+                const p = meta & CONSTANTS.MASK_PLAYER;
+                const typeFlag = meta & CONSTANTS.MASK_TYPE;
+                const type = typeFlag === CONSTANTS.FLAG_QUAD ? CONSTANTS.TYPE_QUADRATIC :
+                    typeFlag === CONSTANTS.FLAG_LIN ? CONSTANTS.TYPE_LINEAR : CONSTANTS.TYPE_CONSTANT;
+
+                this.zobristHash ^= this.zobristTable[this.getZobristIndex(item.r, item.c, type, p)];
+
+                if (p === CONSTANTS.PLAYER_RED) this.redCount--;
                 else this.blueCount--;
-                this.board[item.r][item.c] = null;
+                this.values[idx] = 0;
+                this.metadata[idx] = 0;
             }
         }
     }
 
     checkWinCondition() {
-        if (this.redCount === 0) {
-            this.gameOver = true;
-            this.winner = CONSTANTS.PLAYER_BLUE;
-        } else if (this.blueCount === 0) {
-            this.gameOver = true;
-            this.winner = CONSTANTS.PLAYER_RED;
-        }
+        if (this.redCount === 0) { this.gameOver = true; this.winner = CONSTANTS.PLAYER_BLUE; }
+        else if (this.blueCount === 0) { this.gameOver = true; this.winner = CONSTANTS.PLAYER_RED; }
     }
 
-    // --- AI (Minimax) ---
-
+    // --- AI Thinking ---
     aiMove() {
-        const depth = 3; // Lookahead depth
-        // Blue is usually the CPU in this context, but let's make it generic
-        // If current player is Maximizing player.
-        // We assume aiMove is called when it's the AI's turn.
-        // So the AI (currentPlayer) wants to MAXIMIZE the score.
-
-        console.log(`AI Thinking (Depth ${depth})...`);
+        const depth = 3;
         const result = this.minimax(depth, -Infinity, Infinity, true, this.currentPlayer);
-
-        console.log("AI Best Move:", result);
         return result.move;
     }
 
     minimax(depth, alpha, beta, isMaximizing, player) {
-        if (depth === 0 || this.checkWinConditionForMinimax()) {
+        // Transposition Table Lookup
+        const entry = this.transTable.get(this.zobristHash);
+        if (entry && entry.depth >= depth) {
+            return entry;
+        }
+
+        if (depth === 0 || this.redCount === 0 || this.blueCount === 0) {
             return { score: this.evaluateBoard(player) };
         }
 
         const moves = this.getAllMoves(this.currentPlayer);
-
-        // Safety check: if no moves, game over or stuck
-        if (moves.length === 0) {
-            return { score: this.evaluateBoard(player) };
-        }
+        if (moves.length === 0) return { score: this.evaluateBoard(player) };
 
         let bestMove = null;
-
         if (isMaximizing) {
             let maxEval = -Infinity;
             for (let move of moves) {
                 const undoInfo = this.simulateMove(move);
-
-                // Switch turn logic for recursion
-                this.switchTurnInternal();
-
-                const evalObj = this.minimax(depth - 1, alpha, beta, false, player);
-                const evaluation = evalObj.score;
-
+                this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+                const evaluation = this.minimax(depth - 1, alpha, beta, false, player).score;
                 this.undoMove(undoInfo);
-                this.switchTurnInternal(); // Switch back
-
-                if (evaluation > maxEval) {
-                    maxEval = evaluation;
-                    bestMove = move;
-                }
+                this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+                if (evaluation > maxEval) { maxEval = evaluation; bestMove = move; }
                 alpha = Math.max(alpha, evaluation);
-                if (beta <= alpha) break; // Prune
+                if (beta <= alpha) break;
             }
-            return { score: maxEval, move: bestMove };
+            const result = { score: maxEval, move: bestMove, depth };
+            this.transTable.set(this.zobristHash, result);
+            return result;
         } else {
             let minEval = Infinity;
             for (let move of moves) {
                 const undoInfo = this.simulateMove(move);
-
-                this.switchTurnInternal();
-
-                const evalObj = this.minimax(depth - 1, alpha, beta, true, player);
-                const evaluation = evalObj.score;
-
+                this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+                const evaluation = this.minimax(depth - 1, alpha, beta, true, player).score;
                 this.undoMove(undoInfo);
-                this.switchTurnInternal();
-
-                if (evaluation < minEval) {
-                    minEval = evaluation;
-                    bestMove = move;
-                }
+                this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+                if (evaluation < minEval) { minEval = evaluation; bestMove = move; }
                 beta = Math.min(beta, evaluation);
-                if (beta <= alpha) break; // Prune
+                if (beta <= alpha) break;
             }
-            return { score: minEval, move: bestMove };
+            const result = { score: minEval, move: bestMove, depth };
+            this.transTable.set(this.zobristHash, result);
+            return result;
         }
     }
 
-    // Helper to switch turn without side effects (like win checks that set gameOver)
-    switchTurnInternal() {
-        this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
-    }
-
-    checkWinConditionForMinimax() {
-        return this.redCount === 0 || this.blueCount === 0;
-    }
-
     simulateMove(move) {
-        // RETURN undo info: { move, captured: [], originalFrom, originalTo }
-        const r1 = move.from.r, c1 = move.from.c;
-        const r2 = move.to.r, c2 = move.to.c;
-        const piece = this.board[r1][c1];
+        const fromR = move.from.r, fromC = move.from.c, toR = move.to.r, toC = move.to.c;
+        const fromIdx = fromR * this.cols + fromC, toIdx = toR * this.cols + toC;
+        const value = this.values[fromIdx], meta = this.metadata[fromIdx];
+        const player = meta & CONSTANTS.MASK_PLAYER;
+        const typeFlag = meta & CONSTANTS.MASK_TYPE;
+        const type = typeFlag === CONSTANTS.FLAG_QUAD ? CONSTANTS.TYPE_QUADRATIC : typeFlag === CONSTANTS.FLAG_LIN ? CONSTANTS.TYPE_LINEAR : CONSTANTS.TYPE_CONSTANT;
 
-        // 1. Execute Geometry Move
-        this.board[r2][c2] = piece;
-        this.board[r1][c1] = null;
+        const captured = [];
 
-        // 2. Check Equations
-        // resolveEquations is PURE, returns { removed: [...] }
-        const results = this.resolveEquations(r2, c2);
+        // Update hash: remove from old, add to new
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(fromR, fromC, type, player)];
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(toR, toC, type, player)];
 
-        let allRemoved = [];
+        this.values[toIdx] = value; this.metadata[toIdx] = meta;
+        this.values[fromIdx] = 0; this.metadata[fromIdx] = 0;
+
+        const results = this.resolveEquations(toR, toC);
         if (results.length > 0) {
             results.forEach(res => {
                 res.removed.forEach(item => {
-                    const p = this.board[item.r][item.c];
-                    if (p) {
-                        if (p.player === CONSTANTS.PLAYER_RED) this.redCount--;
-                        else this.blueCount--;
-                        allRemoved.push({ r: item.r, c: item.c, piece: p });
-                        this.board[item.r][item.c] = null;
+                    const idx = item.r * this.cols + item.c;
+                    const pMeta = this.metadata[idx];
+                    if (pMeta) {
+                        const pP = pMeta & CONSTANTS.MASK_PLAYER;
+                        const pTFlag = pMeta & CONSTANTS.MASK_TYPE;
+                        const pT = pTFlag === CONSTANTS.FLAG_QUAD ? CONSTANTS.TYPE_QUADRATIC : pTFlag === CONSTANTS.FLAG_LIN ? CONSTANTS.TYPE_LINEAR : CONSTANTS.TYPE_CONSTANT;
+
+                        captured.push({ r: item.r, c: item.c, value: this.values[idx], metadata: pMeta, type: pT, player: pP });
+
+                        // Update hash: remove captured piece
+                        this.zobristHash ^= this.zobristTable[this.getZobristIndex(item.r, item.c, pT, pP)];
+
+                        if (pP === CONSTANTS.PLAYER_RED) this.redCount--; else this.blueCount--;
+                        this.values[idx] = 0; this.metadata[idx] = 0;
                     }
                 });
             });
         }
-
-        return {
-            move: move,
-            piece: piece,
-            captured: allRemoved
-        };
+        return { move, value, metadata: meta, captured, type, player };
     }
 
     undoMove(info) {
         // 1. Restore Captured
         info.captured.forEach(item => {
-            if (item.piece.player === CONSTANTS.PLAYER_RED) this.redCount++;
-            else this.blueCount++;
-            this.board[item.r][item.c] = item.piece;
+            const idx = item.r * this.cols + item.c;
+            this.values[idx] = item.value; this.metadata[idx] = item.metadata;
+            // Restore hash
+            this.zobristHash ^= this.zobristTable[this.getZobristIndex(item.r, item.c, item.type, item.player)];
+            if ((item.metadata & CONSTANTS.MASK_PLAYER) === CONSTANTS.FLAG_RED) this.redCount++; else this.blueCount++;
         });
 
-        // 2. Reverse Geometry Move
-        const r1 = info.move.from.r, c1 = info.move.from.c;
-        const r2 = info.move.to.r, c2 = info.move.to.c;
+        // 2. Undo Move
+        const fromR = info.move.from.r, fromC = info.move.from.c, toR = info.move.to.r, toC = info.move.to.c;
+        const fromIdx = fromR * this.cols + fromC;
+        const toIdx = toR * this.cols + toC;
 
-        this.board[r1][c1] = info.piece;
-        this.board[r2][c2] = null;
+        // Restore hash
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(toR, toC, info.type, info.player)];
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(fromR, fromC, info.type, info.player)];
+
+        this.values[fromIdx] = info.value; this.metadata[fromIdx] = info.metadata;
+        this.values[toIdx] = 0; this.metadata[toIdx] = 0;
     }
 
     evaluateBoard(aiPlayer) {
-        // AI wants to MAXIMIZE this score.
-        // Positive = Good for AI. Negative = Good for Opponent.
-
         let score = 0;
         const opponent = (aiPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
-
-        for (let r = 0; r < CONSTANTS.ROWS; r++) {
-            for (let c = 0; c < CONSTANTS.COLS; c++) {
-                const p = this.board[r][c];
-                if (!p) continue;
-
-                let value = 0;
-                // Material Value
-                if (p.type === CONSTANTS.TYPE_QUADRATIC) value = 50;
-                else if (p.type === CONSTANTS.TYPE_LINEAR) value = 30;
-                else value = 10;
-
-                // Position Value (Advance is good)
-                // For Red (Top), increasing Row is good.
-                // For Blue (Bottom), decreasing Row is good.
-                let advancement = 0;
-                if (p.player === CONSTANTS.PLAYER_RED) {
-                    advancement = r;
-                } else {
-                    advancement = (CONSTANTS.ROWS - 1) - r;
-                }
-                value += advancement * 2; // Small bias to move forward
-
-                if (p.player === aiPlayer) {
-                    score += value;
-                } else {
-                    score -= value;
-                }
-            }
+        for (let i = 0; i < this.size; i++) {
+            const meta = this.metadata[i];
+            if (meta === 0) continue;
+            const player = meta & CONSTANTS.MASK_PLAYER;
+            const typeFlag = meta & CONSTANTS.MASK_TYPE;
+            let val = typeFlag === CONSTANTS.FLAG_QUAD ? 50 : typeFlag === CONSTANTS.FLAG_LIN ? 30 : 10;
+            const r = Math.floor(i / this.cols);
+            val += (player === CONSTANTS.PLAYER_RED ? r : (this.rows - 1 - r)) * 2;
+            if (player === aiPlayer) score += val; else score -= val;
         }
         return score;
     }
 
     getAllMoves(player) {
         let moves = [];
-        for (let r = 0; r < CONSTANTS.ROWS; r++) {
-            for (let c = 0; c < CONSTANTS.COLS; c++) {
-                const p = this.board[r][c];
-                if (p && p.player === player) {
+        for (let r = 0; r < this.rows; r++) {
+            for (let c = 0; c < this.cols; c++) {
+                const idx = r * this.cols + c;
+                if ((this.metadata[idx] & CONSTANTS.MASK_PLAYER) === player) {
                     const valid = this.getValidMoves(r, c);
-                    valid.forEach(dest => {
-                        moves.push({ from: { r, c }, to: dest });
-                    });
+                    valid.forEach(dest => moves.push({ from: { r, c }, to: dest }));
                 }
             }
         }
-
-        // Move Ordering: sort by potential captured pieces
-        return moves.sort((a, b) => {
-            const scoreA = this.scoreMove(a);
-            const scoreB = this.scoreMove(b);
-            return scoreB - scoreA;
-        });
+        return moves.sort((a, b) => this.scoreMove(b) - this.scoreMove(a));
     }
 
     scoreMove(move) {
-        // Simple heuristic: count pieces that would be removed
-        const r2 = move.to.r, c2 = move.to.c;
-        const results = this.resolveEquations(r2, c2);
+        const fromIdx = move.from.r * this.cols + move.from.c;
+        const toIdx = move.to.r * this.cols + move.to.c;
+
+        const oldFromV = this.values[fromIdx];
+        const oldFromM = this.metadata[fromIdx];
+        const oldToV = this.values[toIdx];
+        const oldToM = this.metadata[toIdx];
+
+        // Temporary Move for Evaluation
+        this.values[toIdx] = oldFromV;
+        this.metadata[toIdx] = oldFromM;
+        this.values[fromIdx] = 0;
+        this.metadata[fromIdx] = 0;
+
+        const results = this.resolveEquations(move.to.r, move.to.c);
+
+        // Restore State
+        this.values[fromIdx] = oldFromV;
+        this.metadata[fromIdx] = oldFromM;
+        this.values[toIdx] = oldToV;
+        this.metadata[toIdx] = oldToM;
+
         let score = 0;
-        results.forEach(res => {
-            if (res.realRoots) {
-                score += res.removed.length * 10;
-            } else {
-                score -= res.removed.length * 10; // Avoid backfire
-            }
-        });
+        results.forEach(res => score += (res.realRoots ? 10 : -10) * res.removed.length);
         return score;
     }
 
-    // --- Helpers ---
     getLabel(value, type) {
         if (type === CONSTANTS.TYPE_CONSTANT) return `${value}`;
-
         let suffix = (type === CONSTANTS.TYPE_QUADRATIC) ? 'x²' : 'x';
-
         if (value === 1) return suffix;
         if (value === -1) return `-${suffix}`;
-        if (value === 0) return `0${suffix}`; // Keep 0 explicit?
-
         return `${value}${suffix}`;
     }
 }

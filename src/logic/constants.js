@@ -29,5 +29,22 @@ export const CONSTANTS = {
         QUAD: [-4, -3, -2, -1, 1, 2, 3, 4],
         LIN: [-4, -3, -2, -1, 1, 2, 3, 4],
         CONST: [-4, -3, -2, -1, 1, 2, 3, 4]
-    }
+    },
+
+    // Bitwise Piece Flags
+    // Lower 2 bits: 1=Red, 2=Blue
+    // Next 3 bits: 4=Quad, 8=Lin, 16=Const
+    MASK_PLAYER: 3,
+    MASK_TYPE: 28,
+    FLAG_RED: 1,
+    FLAG_BLUE: 2,
+    FLAG_QUAD: 4,
+    FLAG_LIN: 8,
+    FLAG_CONST: 16,
+
+    // Zobrist Random Table will be initialized in GameLogic
+    // but we define the size: (ROWS * COLS) * (Types * Players)
+    // Types: 3 pieces * 17 possible values (-8 to 8) * 2 players
+    // For simplicity, let's just use 12 slots for (Type * Player) combinations
+    ZOBRIST_SLOTS: 12
 };

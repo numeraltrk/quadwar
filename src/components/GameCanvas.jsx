@@ -1,7 +1,7 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, memo } from 'react';
 import { CONSTANTS } from '../logic/constants';
 
-const GameCanvas = ({ game, isOnline, myPlayer, onMove, pendingEquations, isAnimating, rotateBoard }) => {
+const GameCanvas = memo(({ game, isOnline, myPlayer, onMove, pendingEquations, isAnimating, rotateBoard }) => {
     const canvasRef = useRef(null);
     const offscreenRef = useRef(null);
 
@@ -127,25 +127,33 @@ const GameCanvas = ({ game, isOnline, myPlayer, onMove, pendingEquations, isAnim
 
             for (let r = 0; r < CONSTANTS.ROWS; r++) {
                 for (let c = 0; c < CONSTANTS.COLS; c++) {
-                    const p = game.board[r][c];
-                    if (p) {
-                        let drawR = r, drawC = c;
-                        if (rotateBoard) {
-                            drawR = CONSTANTS.ROWS - 1 - r;
-                            drawC = CONSTANTS.COLS - 1 - c;
-                        }
+                    const idx = r * CONSTANTS.COLS + c;
+                    const meta = game.metadata[idx];
+                    if (meta === 0) continue;
 
-                        const x = drawC * CONSTANTS.TILE_SIZE + CONSTANTS.TILE_SIZE / 2;
-                        const y = drawR * CONSTANTS.TILE_SIZE + CONSTANTS.TILE_SIZE / 2;
-
-                        ctx.fillStyle = p.player === CONSTANTS.PLAYER_RED ? CONSTANTS.COLOR_RED : CONSTANTS.COLOR_BLUE;
-                        ctx.beginPath();
-                        ctx.arc(x, y, 25, 0, Math.PI * 2);
-                        ctx.fill();
-
-                        ctx.fillStyle = '#fff';
-                        ctx.fillText(p.label, x, y);
+                    let drawR = r, drawC = c;
+                    if (rotateBoard) {
+                        drawR = CONSTANTS.ROWS - 1 - r;
+                        drawC = CONSTANTS.COLS - 1 - c;
                     }
+
+                    const x = drawC * CONSTANTS.TILE_SIZE + CONSTANTS.TILE_SIZE / 2;
+                    const y = drawR * CONSTANTS.TILE_SIZE + CONSTANTS.TILE_SIZE / 2;
+
+                    const player = meta & CONSTANTS.MASK_PLAYER;
+                    const val = game.values[idx];
+                    const typeFlag = meta & CONSTANTS.MASK_TYPE;
+                    const type = typeFlag === CONSTANTS.FLAG_QUAD ? CONSTANTS.TYPE_QUADRATIC :
+                        typeFlag === CONSTANTS.FLAG_LIN ? CONSTANTS.TYPE_LINEAR : CONSTANTS.TYPE_CONSTANT;
+                    const label = game.getLabel(val, type);
+
+                    ctx.fillStyle = player === CONSTANTS.PLAYER_RED ? CONSTANTS.COLOR_RED : CONSTANTS.COLOR_BLUE;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 25, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#fff';
+                    ctx.fillText(label, x, y);
                 }
             }
             animationFrameId = requestAnimationFrame(render);
@@ -190,6 +198,6 @@ const GameCanvas = ({ game, isOnline, myPlayer, onMove, pendingEquations, isAnim
             id="gameCanvas"
         />
     );
-};
+});
 
 export default GameCanvas;
