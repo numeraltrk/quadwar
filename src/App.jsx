@@ -6,7 +6,7 @@ import './index.css';
 
 function App() {
   return (
-    <Router>
+    <Router basename="/quadwar/">
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/game" element={<GamePage />} />
