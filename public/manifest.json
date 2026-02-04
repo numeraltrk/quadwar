@@ -2,8 +2,8 @@
   "name": "Quadratic War",
   "short_name": "QuadWar",
   "id": "quadwar-v1",
-  "start_url": "/quadwar/",
-  "scope": "/quadwar/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "launch_handler": {
     "client_mode": "focus-existing"
@@ -19,12 +19,12 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "assets/icons/icon-192x192.png",
+      "src": "/icons/icon-192x192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "assets/icons/icon-512x512.png",
+      "src": "/icons/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png"
     }

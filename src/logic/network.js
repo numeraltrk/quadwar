@@ -1,3 +1,5 @@
+import { Peer } from 'peerjs';
+
 export class NetworkManager {
     constructor() {
         this.peer = null;
@@ -15,12 +17,6 @@ export class NetworkManager {
     init(customId, onOpen, onError) {
         // Create Peer with random ID or custom ID
         // Note: In real prod, use own TURN server. Here we use public PeerJS server.
-        // We need to load PeerJS library in HTML first
-        if (!window.Peer) {
-            console.error("PeerJS not loaded");
-            if (onError) onError("PeerJS library failed to load");
-            return;
-        }
 
         this.peer = new Peer(customId, {
             debug: 2
