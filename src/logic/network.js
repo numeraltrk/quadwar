@@ -17,6 +17,8 @@ export class NetworkManager {
     init(customId, onOpen, onError) {
         // Create Peer with random ID or custom ID
         // Note: In real prod, use own TURN server. Here we use public PeerJS server.
+        if (onOpen) this.onOpen = onOpen;
+        if (onError) this.onError = onError;
 
         this.peer = new Peer(customId, {
             debug: 2

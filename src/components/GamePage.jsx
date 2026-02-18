@@ -17,11 +17,10 @@ const GamePage = () => {
     const joinId = query.get('join');
 
     const [updateKey, setUpdateKey] = useState(0);
-    const gameRef = useRef(new GameLogic());
-    const game = gameRef.current;
+    const game = useMemo(() => new GameLogic(), []);
 
     const [network, setNetwork] = useState(null);
-    const [gameMode, setGameMode] = useState(modeParam);
+    const [gameMode] = useState(modeParam);
     const [myPlayer, setMyPlayer] = useState(CONSTANTS.PLAYER_RED);
     const [isOnline, setIsOnline] = useState(false);
     const [logs, setLogs] = useState([]);
@@ -40,19 +39,19 @@ const GamePage = () => {
     const rotateBoard = useMemo(() => isOnline && myPlayer === CONSTANTS.PLAYER_RED, [isOnline, myPlayer]);
 
     const checkGameOver = useCallback(() => {
-        if (gameRef.current.gameOver) {
-            alert("GAME OVER! Winner: " + (gameRef.current.winner === CONSTANTS.PLAYER_RED ? "Red" : "Blue"));
+        if (game.gameOver) {
+            alert("GAME OVER! Winner: " + (game.winner === CONSTANTS.PLAYER_RED ? "Red" : "Blue"));
         }
-    }, []);
+    }, [game]);
 
 
     const executeMove = useCallback((fromR, fromC, toR, toC) => {
-        const response = gameRef.current.movePiece(fromR, fromC, toR, toC);
+        const response = game.movePiece(fromR, fromC, toR, toC);
         const results = response.events;
 
         if (results && results.length > 0) {
             results.forEach(res => {
-                setLogs(prev => [{ ...res, player: gameRef.current.currentPlayer }, ...prev]);
+                setLogs(prev => [{ ...res, player: game.currentPlayer }, ...prev]);
             });
         }
 
@@ -61,7 +60,7 @@ const GamePage = () => {
             setPendingEquations(results);
 
             setTimeout(() => {
-                gameRef.current.completeTurn(results);
+                game.completeTurn(results);
                 setPendingEquations(null);
                 setIsAnimating(false);
                 forceUpdate();
@@ -71,13 +70,13 @@ const GamePage = () => {
             forceUpdate();
             checkGameOver();
         }
-    }, [checkGameOver, forceUpdate]);
+    }, [checkGameOver, forceUpdate, game]);
 
     const handleMove = useCallback((row, col) => {
-        if (isAnimating || gameRef.current.gameOver) return;
-        if (isOnline && gameRef.current.currentPlayer !== myPlayer) return;
+        if (isAnimating || game.gameOver) return;
+        if (isOnline && game.currentPlayer !== myPlayer) return;
 
-        const g = gameRef.current;
+        const g = game;
         if (g.selectedPiece) {
             const validMoves = g.getValidMoves(g.selectedPiece.r, g.selectedPiece.c);
             const isMove = validMoves.some(m => m.r === row && m.c === col);
@@ -109,7 +108,7 @@ const GamePage = () => {
                 forceUpdate();
             }
         }
-    }, [executeMove, forceUpdate, isOnline, myPlayer, network]);
+    }, [executeMove, forceUpdate, isOnline, myPlayer, network, game, isAnimating]);
 
     const setupOnlineMode = useCallback(() => {
         setIsOnline(true);
@@ -166,13 +165,13 @@ const GamePage = () => {
 
     useEffect(() => {
         // AI Turn Triggering with Breeding Time (1s)
-        if (gameMode === 'cpu' && gameRef.current.currentPlayer === CONSTANTS.PLAYER_RED && !gameRef.current.gameOver && !isAnimating) {
+        if (gameMode === 'cpu' && game.currentPlayer === CONSTANTS.PLAYER_RED && !game.gameOver && !isAnimating) {
             console.log("[Main] AI Turn Waiting (Breathing Gap)...");
 
             const timer = setTimeout(() => {
                 console.log("[Main] AI Start Thinking...");
                 setIsThinking(true);
-                const g = gameRef.current;
+                const g = game;
                 workerRef.current.postMessage({
                     type: 'MOVE',
                     data: {
@@ -186,7 +185,7 @@ const GamePage = () => {
                 });
 
                 // Safety timeout for worker
-                const safety = setTimeout(() => setIsThinking(current => {
+                setTimeout(() => setIsThinking(current => {
                     if (current) {
                         console.warn("[Main] AI Safety Timeout Triggered");
                         return false;
@@ -197,7 +196,7 @@ const GamePage = () => {
 
             return () => clearTimeout(timer);
         }
-    }, [gameMode, isAnimating, updateKey]);
+    }, [gameMode, isAnimating, updateKey, game]);
 
     useEffect(() => {
         // Init AI Worker
@@ -217,7 +216,7 @@ const GamePage = () => {
                     setIsThinking(false);
                     setHeaderTitle("AI ERROR: " + e.data.message);
                     // Fallback to local AI
-                    const cpuMove = gameRef.current.aiMove();
+                    const cpuMove = game.aiMove();
                     if (cpuMove) executeMove(cpuMove.from.r, cpuMove.from.c, cpuMove.to.r, cpuMove.to.c);
                 }
             };
@@ -228,7 +227,7 @@ const GamePage = () => {
                 setIsThinking(false);
                 setHeaderTitle("AI ERROR");
                 // Fallback to local AI if worker fails
-                const cpuMove = gameRef.current.aiMove();
+                const cpuMove = game.aiMove();
                 if (cpuMove) executeMove(cpuMove.from.r, cpuMove.from.c, cpuMove.to.r, cpuMove.to.c);
             };
         } catch (e) {
@@ -245,17 +244,18 @@ const GamePage = () => {
         }
 
         const handleBeforeUnload = (e) => {
-            if (!gameRef.current.gameOver) {
+            if (!game.gameOver) {
                 e.preventDefault();
                 e.returnValue = '';
             }
         };
         window.addEventListener('beforeunload', handleBeforeUnload);
+
         return () => {
             window.removeEventListener('beforeunload', handleBeforeUnload);
             if (workerRef.current) workerRef.current.terminate();
         };
-    }, [executeMove, gameMode, setupOnlineMode]);
+    }, [executeMove, gameMode, setupOnlineMode, game]);
 
     return (
         <div id="game-container">

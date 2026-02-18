@@ -9,6 +9,23 @@ const LandingPage = () => {
     const [showInstallBtn, setShowInstallBtn] = useState(false);
     const navigate = useNavigate();
 
+    const createBackgroundElements = () => {
+        const equations = ['x² - 4 = 0', '2x + 1 = 5', 'y = mx + b', 'Δ = b² - 4ac', 'f(x)', 'x → ∞'];
+        const container = document.querySelector('.background-grid');
+        if (!container) return;
+
+        for (let i = 0; i < 15; i++) {
+            const el = document.createElement('div');
+            el.className = 'equation-bg';
+            el.textContent = equations[Math.floor(Math.random() * equations.length)];
+            el.style.left = `${Math.random() * 100}vw`;
+            el.style.top = `${Math.random() * 100}vh`;
+            el.style.opacity = Math.random() * 0.1;
+            el.style.transform = `rotate(${Math.random() * 40 - 20}deg)`;
+            container.appendChild(el);
+        }
+    };
+
     useEffect(() => {
         createBackgroundElements();
 
@@ -28,23 +45,6 @@ const LandingPage = () => {
             window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
         };
     }, []);
-
-    const createBackgroundElements = () => {
-        const equations = ['x² - 4 = 0', '2x + 1 = 5', 'y = mx + b', 'Δ = b² - 4ac', 'f(x)', 'x → ∞'];
-        const container = document.querySelector('.background-grid');
-        if (!container) return;
-
-        for (let i = 0; i < 15; i++) {
-            const el = document.createElement('div');
-            el.className = 'equation-bg';
-            el.textContent = equations[Math.floor(Math.random() * equations.length)];
-            el.style.left = `${Math.random() * 100}vw`;
-            el.style.top = `${Math.random() * 100}vh`;
-            el.style.opacity = Math.random() * 0.1;
-            el.style.transform = `rotate(${Math.random() * 40 - 20}deg)`;
-            container.appendChild(el);
-        }
-    };
 
     const handlePlayClick = () => {
         setShowModeModal(true);

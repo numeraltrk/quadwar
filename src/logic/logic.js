@@ -422,7 +422,6 @@ export class GameLogic {
 
     evaluateBoard(aiPlayer) {
         let score = 0;
-        const opponent = (aiPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
         for (let i = 0; i < this.size; i++) {
             const meta = this.metadata[i];
             if (meta === 0) continue;
