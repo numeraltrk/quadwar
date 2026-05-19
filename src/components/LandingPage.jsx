@@ -53,7 +53,7 @@ const LandingPage = () => {
     const handleModeSelect = (mode) => {
         if (mode === 'online') {
             const roomId = 'qw-' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-            const joinLink = `${window.location.origin}/quadwar/#/game?mode=online&join=${roomId}`;
+            const joinLink = `${window.location.origin}/#/game?mode=online&join=${roomId}`;
 
             navigator.clipboard.writeText(joinLink).then(() => {
                 alert('Link Copied! Joining as Host...');
