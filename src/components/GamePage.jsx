@@ -93,9 +93,11 @@ const GamePage = () => {
             } else {
                 const p = g.getPiece(row, col);
                 if (p && p.player === g.currentPlayer && (!isOnline || p.player === myPlayer)) {
+                    // eslint-disable-next-line react-hooks/immutability
                     g.selectedPiece = { r: row, c: col };
                     forceUpdate();
                 } else {
+                     
                     g.selectedPiece = null;
                     forceUpdate();
                 }
@@ -104,6 +106,7 @@ const GamePage = () => {
             const p = g.getPiece(row, col);
             if (p && p.player === g.currentPlayer) {
                 if (isOnline && p.player !== myPlayer) return;
+                 
                 g.selectedPiece = { r: row, c: col };
                 forceUpdate();
             }
@@ -235,11 +238,15 @@ const GamePage = () => {
         }
 
         if (gameMode === 'online') {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setupOnlineMode();
         } else if (gameMode === 'cpu') {
+             
             setMyPlayer(CONSTANTS.PLAYER_BLUE); // Human is Blue vs CPU
+             
             setHeaderTitle('CPU MODE');
         } else {
+             
             setHeaderTitle('LOCAL MODE');
         }
 

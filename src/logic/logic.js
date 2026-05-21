@@ -29,16 +29,20 @@ export class GameLogic {
     initZobrist() {
         // Use a simple seeded LCG for consistency across threads
         let seed = 12345;
+        this.zobristTable = new Uint32Array(this.size * 54);
         for (let i = 0; i < this.zobristTable.length; i++) {
             seed = (seed * 1664525 + 1013904223) % 4294967296;
             this.zobristTable[i] = seed;
         }
+        seed = (seed * 1664525 + 1013904223) % 4294967296;
+        this.zobristTurn = seed;
     }
 
-    getZobristIndex(r, c, type, player) {
+    getZobristIndex(r, c, type, player, value) {
         const typeIdx = (type === CONSTANTS.TYPE_QUADRATIC ? 0 : type === CONSTANTS.TYPE_LINEAR ? 1 : 2);
         const playerIdx = (player === CONSTANTS.PLAYER_RED ? 0 : 1);
-        return (r * this.cols + c) * 6 + (playerIdx * 3 + typeIdx);
+        const valueIdx = value + 4; // -4 maps to 0, 4 maps to 8
+        return (r * this.cols + c) * 54 + (playerIdx * 27) + (typeIdx * 9) + valueIdx;
     }
 
     initBoard() {
@@ -70,7 +74,7 @@ export class GameLogic {
                 this.values[idx] = setup.values[c];
                 this.metadata[idx] = (player === CONSTANTS.PLAYER_RED ? CONSTANTS.FLAG_RED : CONSTANTS.FLAG_BLUE) | setup.flag;
 
-                this.zobristHash ^= this.zobristTable[this.getZobristIndex(setup.row, c, setup.type, player)];
+                this.zobristHash ^= this.zobristTable[this.getZobristIndex(setup.row, c, setup.type, player, this.values[idx])];
 
                 if (player === CONSTANTS.PLAYER_RED) this.redCount++;
                 else this.blueCount++;
@@ -166,8 +170,8 @@ export class GameLogic {
             typeFlag === CONSTANTS.FLAG_LIN ? CONSTANTS.TYPE_LINEAR : CONSTANTS.TYPE_CONSTANT;
 
         // Update Zobrist Hash (Remove from old, add to new)
-        this.zobristHash ^= this.zobristTable[this.getZobristIndex(fromR, fromC, type, player)];
-        this.zobristHash ^= this.zobristTable[this.getZobristIndex(toR, toC, type, player)];
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(fromR, fromC, type, player, value)];
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(toR, toC, type, player, value)];
 
         this.values[toIdx] = value;
         this.metadata[toIdx] = meta;
@@ -187,6 +191,7 @@ export class GameLogic {
 
     switchTurn() {
         this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+        this.zobristHash ^= this.zobristTurn;
         this.checkWinCondition();
     }
 
@@ -285,7 +290,7 @@ export class GameLogic {
                 const type = typeFlag === CONSTANTS.FLAG_QUAD ? CONSTANTS.TYPE_QUADRATIC :
                     typeFlag === CONSTANTS.FLAG_LIN ? CONSTANTS.TYPE_LINEAR : CONSTANTS.TYPE_CONSTANT;
 
-                this.zobristHash ^= this.zobristTable[this.getZobristIndex(item.r, item.c, type, p)];
+                this.zobristHash ^= this.zobristTable[this.getZobristIndex(item.r, item.c, type, p, this.values[idx])];
 
                 if (p === CONSTANTS.PLAYER_RED) this.redCount--;
                 else this.blueCount--;
@@ -311,7 +316,9 @@ export class GameLogic {
         // Transposition Table Lookup
         const entry = this.transTable.get(this.zobristHash);
         if (entry && entry.depth >= depth) {
-            return entry;
+            if (entry.flag === 'EXACT') return entry;
+            if (entry.flag === 'LOWER' && entry.score >= beta) return entry;
+            if (entry.flag === 'UPPER' && entry.score <= alpha) return entry;
         }
 
         if (depth === 0 || this.redCount === 0 || this.blueCount === 0) {
@@ -324,32 +331,44 @@ export class GameLogic {
         let bestMove = null;
         if (isMaximizing) {
             let maxEval = -Infinity;
+            let originalAlpha = alpha;
             for (let move of moves) {
                 const undoInfo = this.simulateMove(move);
                 this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+                this.zobristHash ^= this.zobristTurn;
                 const evaluation = this.minimax(depth - 1, alpha, beta, false, player).score;
                 this.undoMove(undoInfo);
                 this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+                this.zobristHash ^= this.zobristTurn;
                 if (evaluation > maxEval) { maxEval = evaluation; bestMove = move; }
                 alpha = Math.max(alpha, evaluation);
                 if (beta <= alpha) break;
             }
-            const result = { score: maxEval, move: bestMove, depth };
+            let flag = 'EXACT';
+            if (maxEval <= originalAlpha) flag = 'UPPER';
+            else if (maxEval >= beta) flag = 'LOWER';
+            const result = { score: maxEval, move: bestMove, depth, flag };
             this.transTable.set(this.zobristHash, result);
             return result;
         } else {
             let minEval = Infinity;
+            let originalBeta = beta;
             for (let move of moves) {
                 const undoInfo = this.simulateMove(move);
                 this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+                this.zobristHash ^= this.zobristTurn;
                 const evaluation = this.minimax(depth - 1, alpha, beta, true, player).score;
                 this.undoMove(undoInfo);
                 this.currentPlayer = (this.currentPlayer === CONSTANTS.PLAYER_RED) ? CONSTANTS.PLAYER_BLUE : CONSTANTS.PLAYER_RED;
+                this.zobristHash ^= this.zobristTurn;
                 if (evaluation < minEval) { minEval = evaluation; bestMove = move; }
                 beta = Math.min(beta, evaluation);
                 if (beta <= alpha) break;
             }
-            const result = { score: minEval, move: bestMove, depth };
+            let flag = 'EXACT';
+            if (minEval >= originalBeta) flag = 'LOWER';
+            else if (minEval <= alpha) flag = 'UPPER';
+            const result = { score: minEval, move: bestMove, depth, flag };
             this.transTable.set(this.zobristHash, result);
             return result;
         }
@@ -366,8 +385,8 @@ export class GameLogic {
         const captured = [];
 
         // Update hash: remove from old, add to new
-        this.zobristHash ^= this.zobristTable[this.getZobristIndex(fromR, fromC, type, player)];
-        this.zobristHash ^= this.zobristTable[this.getZobristIndex(toR, toC, type, player)];
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(fromR, fromC, type, player, value)];
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(toR, toC, type, player, value)];
 
         this.values[toIdx] = value; this.metadata[toIdx] = meta;
         this.values[fromIdx] = 0; this.metadata[fromIdx] = 0;
@@ -386,7 +405,7 @@ export class GameLogic {
                         captured.push({ r: item.r, c: item.c, value: this.values[idx], metadata: pMeta, type: pT, player: pP });
 
                         // Update hash: remove captured piece
-                        this.zobristHash ^= this.zobristTable[this.getZobristIndex(item.r, item.c, pT, pP)];
+                        this.zobristHash ^= this.zobristTable[this.getZobristIndex(item.r, item.c, pT, pP, this.values[idx])];
 
                         if (pP === CONSTANTS.PLAYER_RED) this.redCount--; else this.blueCount--;
                         this.values[idx] = 0; this.metadata[idx] = 0;
@@ -403,7 +422,7 @@ export class GameLogic {
             const idx = item.r * this.cols + item.c;
             this.values[idx] = item.value; this.metadata[idx] = item.metadata;
             // Restore hash
-            this.zobristHash ^= this.zobristTable[this.getZobristIndex(item.r, item.c, item.type, item.player)];
+            this.zobristHash ^= this.zobristTable[this.getZobristIndex(item.r, item.c, item.type, item.player, item.value)];
             if ((item.metadata & CONSTANTS.MASK_PLAYER) === CONSTANTS.FLAG_RED) this.redCount++; else this.blueCount++;
         });
 
@@ -413,8 +432,8 @@ export class GameLogic {
         const toIdx = toR * this.cols + toC;
 
         // Restore hash
-        this.zobristHash ^= this.zobristTable[this.getZobristIndex(toR, toC, info.type, info.player)];
-        this.zobristHash ^= this.zobristTable[this.getZobristIndex(fromR, fromC, info.type, info.player)];
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(toR, toC, info.type, info.player, info.value)];
+        this.zobristHash ^= this.zobristTable[this.getZobristIndex(fromR, fromC, info.type, info.player, info.value)];
 
         this.values[fromIdx] = info.value; this.metadata[fromIdx] = info.metadata;
         this.values[toIdx] = 0; this.metadata[toIdx] = 0;
@@ -422,15 +441,18 @@ export class GameLogic {
 
     evaluateBoard(aiPlayer) {
         let score = 0;
-        for (let i = 0; i < this.size; i++) {
-            const meta = this.metadata[i];
-            if (meta === 0) continue;
-            const player = meta & CONSTANTS.MASK_PLAYER;
-            const typeFlag = meta & CONSTANTS.MASK_TYPE;
-            let val = typeFlag === CONSTANTS.FLAG_QUAD ? 50 : typeFlag === CONSTANTS.FLAG_LIN ? 30 : 10;
-            const r = Math.floor(i / this.cols);
-            val += (player === CONSTANTS.PLAYER_RED ? r : (this.rows - 1 - r)) * 2;
-            if (player === aiPlayer) score += val; else score -= val;
+        for (let r = 0, i = 0; r < this.rows; r++) {
+            const redBonus = r * 2;
+            const blueBonus = (this.rows - 1 - r) * 2;
+            for (let c = 0; c < this.cols; c++, i++) {
+                const meta = this.metadata[i];
+                if (meta === 0) continue;
+                const player = meta & CONSTANTS.MASK_PLAYER;
+                const typeFlag = meta & CONSTANTS.MASK_TYPE;
+                let val = typeFlag === CONSTANTS.FLAG_QUAD ? 50 : typeFlag === CONSTANTS.FLAG_LIN ? 30 : 10;
+                val += (player === CONSTANTS.PLAYER_RED ? redBonus : blueBonus);
+                if (player === aiPlayer) score += val; else score -= val;
+            }
         }
         return score;
     }
@@ -442,11 +464,15 @@ export class GameLogic {
                 const idx = r * this.cols + c;
                 if ((this.metadata[idx] & CONSTANTS.MASK_PLAYER) === player) {
                     const valid = this.getValidMoves(r, c);
-                    valid.forEach(dest => moves.push({ from: { r, c }, to: dest }));
+                    valid.forEach(dest => {
+                        const move = { from: { r, c }, to: dest };
+                        move.score = this.scoreMove(move);
+                        moves.push(move);
+                    });
                 }
             }
         }
-        return moves.sort((a, b) => this.scoreMove(b) - this.scoreMove(a));
+        return moves.sort((a, b) => b.score - a.score);
     }
 
     scoreMove(move) {

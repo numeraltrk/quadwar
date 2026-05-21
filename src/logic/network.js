@@ -21,7 +21,14 @@ export class NetworkManager {
         if (onError) this.onError = onError;
 
         this.peer = new Peer(customId, {
-            debug: 2
+            debug: 1,
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.cloudflare.com:3478' },
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            }
         });
 
         this.peer.on('open', (id) => {
